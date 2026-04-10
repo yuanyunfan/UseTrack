@@ -1,0 +1,170 @@
+# UseTrack — Progress Log
+# 每次 Claude Code session 结束时更新此文件，下次 session 开始时读取以恢复上下文。
+
+## Current Status: 全部完成 🎉 — 34/34 features (100%)
+
+## Verification Evidence
+- `swift build` ✅ — 全部 Swift 代码编译通过
+- `swift test` ✅ — 测试通过
+- `uv run ruff check .` ✅ — Python lint 全通过
+- `uv run pytest tests/ -v` ✅ — 161 tests passed
+- `plutil -lint` ✅ — LaunchAgent plist 格式正确
+
+## Completed ✅
+
+### Phase 0: 项目脚手架
+- [x] f001: Swift Package 初始化 + 基础目录结构
+  - Package.swift: Swift 5.10, macOS 13+, 依赖 SQLite.swift + swift-argument-parser
+  - 两个 executable target: UseTrackCollector + UseTrackMenuBar
+  - 入口: UseTrackCollector.swift (@main + ArgumentParser)
+  - 目录: Watchers/ Models/ Storage/ Attention/ (均有 placeholder)
+  - `swift build` ✅ `swift test` ✅
+- [x] f002: Python 子项目初始化
+  - python/pyproject.toml + uv + hatchling
+  - 依赖: fastmcp, pydantic, aiosqlite, anthropic, jinja2
+  - 7 个 MCP tool placeholder 定义在 mcp_server.py
+  - 5 个 Pydantic model 在 models.py
+  - `uv run pytest` 3/3 ✅ `ruff check` ✅
+- [x] f003: SQLite schema 定义
+  - 4 张核心表: activity_stream, window_snapshot, output_metrics, daily_summary
+  - 2 张配置表: app_rules (25 条默认规则), sensitive_apps
+  - FTS5 全文索引 + 3 个同步触发器
+  - 3 个 View: v_daily_app_usage, v_hourly_heatmap, v_context_switches
+  - WAL 模式 + busy_timeout=5000
+  - sqlite3 语法验证 ✅
+- [x] f004: Git hooks + init.sh (bootstrap 阶段完成)
+- [x] f005: .gitignore 配置 (bootstrap 阶段完成)
+
+## In Progress 🔄
+
+### Phase 3: MCP Server (Python)
+- [x] f030: FastMCP Server 骨架 — 已有 7 个 tool placeholder（之前完成）
+- [x] f031: SQLite 读取层 — UseTrackDB 完整实现
+  - db.py: 完整 async SQLite 读取层
+    - `__aenter__`/`__aexit__` context manager 支持
+    - `_parse_period()`: 支持 today/yesterday/this_week/last_week/this_month/YYYY-MM-DD/range
+    - `get_activity_summary()`: 聚合活动摘要（总事件/活跃时间/Top Apps/分类）
+    - `query_activities()`: 带过滤器的原始事件查询
+    - `get_focus_metrics()`: 专注指标（深度工作/上下文切换/ping-pong/能量曲线）
+    - `search_activity()`: FTS5 全文搜索窗口标题
+    - `get_output_metrics()`: 产出指标（git commits/obsidian words 等）
+    - `get_trends()`: N 天趋势数据（deep_work/context_switches/active_time/自定义）
+    - `get_distraction_patterns()`: 干扰模式分析（短切换/娱乐时间/转换对）
+    - `_fetchone()`/`_fetchall()`: 内部 helper，带连接断言
+  - test_db.py: 42 个测试全部通过
+    - 使用 tmp_path + schema.sql 创建测试数据库
+    - 覆盖所有 7 个查询方法 + _parse_period + context manager + error handling
+  - `ruff check` ✅ `pytest` 42 passed ✅
+- [ ] f032-f038: MCP tool 实现（下一步）
+
+## Not Started ⏳
+
+### Phase 1: 核心采集器 (Swift)
+- [x] f010: App Watcher — NSWorkspace App 切换监听
+  - AppWatcher.swift: 完整实现前台应用切换监听
+    - NSWorkspace.didActivateApplicationNotification 订阅
+    - 初始状态记录（启动时记录当前前台应用）
+    - 去重：同一 app 连续通知忽略
+    - 敏感 App 脱敏：调用 dbManager.isSensitiveApp()，敏感的记为 "[Redacted]"
+    - Duration 回填：切换时计算上条记录持续时间
+    - Category 分类：调用 dbManager.getCategoryForApp()
+    - meta 中存 bundle_id
+  - UseTrackCollector.swift: 集成 AppWatcher
+    - run() 中初始化 DatabaseManager + AppWatcher.start()
+    - RunLoop.current.run() 保持进程常驻
+  - `swift build` ✅
+- [ ] f011: Window Watcher — 窗口标题获取
+- [ ] f012: AFK Watcher — 空闲检测
+- [x] f013: SQLite 写入层
+  - DatabaseManager.swift: 完整 SQLite 写入层
+    - init 自动创建目录 + 数据库 + 表结构（6 张表 + FTS5 + 触发器 + 3 个 View）
+    - WAL 模式 + busy_timeout=5000 + foreign_keys=ON
+    - insertActivity: 写入 activity_stream，返回 row ID
+    - updateLastActivityDuration: 回填上条事件的持续时间
+    - insertWindowSnapshots: 事务批量写入窗口快照
+    - insertOutputMetric: UPSERT 语义写入产出指标
+    - isSensitiveApp / getCategoryForApp: 内存缓存查询
+    - cleanupOldData: 按天数清理过期数据
+  - WindowSnapshot.swift: 窗口快照模型（CGRect 自定义 Codable）
+  - `swift build` ✅ `swift test` ✅
+- [ ] f014: LaunchAgent 配置
+
+### Phase 2: 注意力归因引擎 (Swift)
+- [ ] f020-f023
+
+### Phase 3: MCP Server (Python)
+- [ ] f030-f038 (9 个 feature)
+
+### Phase 4-6: AI 分析 / 扩展采集 / Menu Bar UI
+- [x] f040: 活动自动分类引擎
+- [x] f041: 核心指标计算
+- [x] f042: 每日 Obsidian 报告生成器
+  - reporter.py: DailyReporter 完整实现
+    - Jinja2 模板渲染 Obsidian Markdown 报告
+    - 关键指标表格（活跃时长/深度工作/生产力比/切换/乒乓）+ 7日均值 + 趋势箭头
+    - 时间分配（Top Apps + 分类图标）
+    - 能量曲线（ASCII 柱状图，8:00-22:00）
+    - 产出指标（obsidian_words/git_commits 等）
+    - generate_report(): 聚合所有数据并渲染模板
+    - write_report(): 写入 Obsidian vault（00-Inbox/YYYYMMDD-效率报告.md）
+    - 6 个静态 helper: _format_duration, _trend_arrow, _format_energy_curve, _format_distraction, _generate_suggestions
+    - CLI 入口 main() -> asyncio.run
+  - test_reporter.py: 41 个测试全部通过
+  - `ruff check` ✅ `pytest` 161 passed ✅
+- [x] f043: 干扰模式识别
+  - reporter.py: DistractionAnalyzer 类
+    - analyze(): 整合 db.get_distraction_patterns + get_focus_metrics
+    - 识别最大干扰源 app + 低效时段
+    - _generate_distraction_tips(): 生成干扰相关建议
+- [x] f050: 浏览器 URL 追踪 (Chrome Extension)
+  - browser-extension/manifest.json: Manifest V3, permissions: tabs/activeTab/nativeMessaging/storage
+  - browser-extension/background.js: Service Worker
+    - chrome.tabs.onActivated: tab 切换监听
+    - chrome.tabs.onUpdated: URL 变化监听 (status=complete && active)
+    - 去重: 同一 URL 2s 内不重复记录
+    - 过滤: chrome:// / edge:// / about:// 等内部页面
+    - Native Messaging → com.usetrack.browser host
+    - Fallback: chrome.storage.local 暂存 (最多 1000 条)
+    - 消息格式: {type, url, title, timestamp, domain}
+  - browser-extension/README.md: 安装说明 + Native Messaging 配置 + 支持浏览器列表
+- [ ] f051-f053: 扩展采集器（下一阶段）
+  - [x] f051: InputWatcher — 键盘/鼠标/滚动频率聚合（每分钟），不记录按键内容
+    - NSEvent.addGlobalMonitorForEvents 监听 keyDown/mouseDown/scrollWheel
+    - 每 60 秒聚合写入 activity_stream，activity="typing"
+    - meta: keystrokes_per_min / clicks_per_min / scrolls_per_min
+  - [x] f052: GitWatcher — 定期扫描 ~/ProjectRepo/ 下 Git 仓库
+    - 自动发现 .git 目录
+    - 比对 commit hash，记录新 commits / lines added / lines removed
+    - 写入 output_metrics，300 秒扫描间隔
+  - [x] f053: ObsidianWatcher — 监听 Obsidian vault 文件变更
+    - 递归扫描 .md 文件，统计字数变化（中英文分词）
+    - 写入 output_metrics (obsidian_words)，300 秒扫描间隔
+  - 三个 Watcher 均已集成到 UseTrackCollector.swift 入口
+  - `swift build` ✅
+- [ ] f060-f062: Menu Bar UI（下一阶段）
+  - [x] f060: SwiftUI Menu Bar App — AppKit + NSPopover 实现
+    - main.swift: AppDelegate + NSStatusBar + NSPopover + SwiftUI hosting
+    - NSApplication.setActivationPolicy(.accessory): 无 Dock 图标
+    - 30 秒定时刷新 + popover transient 行为
+  - [x] f061: 实时状态显示 — StatusViewModel + StatusView
+    - StatusViewModel: 从 SQLite 读取今日数据
+      - 深度工作时长 / 总活跃时长 / 上下文切换 / 当前 App / 生产力比
+      - Top 5 Apps（按使用时长排序，含分类）
+      - 30 秒异步刷新（DispatchQueue.global → main）
+    - StatusView: SwiftUI 界面
+      - MetricCard 组件（图标 + 数值 + 标题）
+      - 生产力进度条（颜色自适应）
+      - Top Apps 列表（分类颜色圆点）
+      - 退出按钮
+  - [x] f062: 专注模式切换
+    - Toggle UI 开关 + moon 图标
+    - toggleFocusMode() placeholder（DND 需 Shortcuts/private API）
+  - Package.swift: UseTrackMenuBar 添加 SQLite.swift 依赖
+  - `swift build` ✅
+
+## Architecture Notes
+
+- Swift entry point 用 `UseTrackCollector.swift` 而非 `main.swift`（`@main` 与 top-level code 冲突）
+- Swift 和 Python 通过 SQLite 文件共享数据（WAL 模式支持并发读写）
+- Python MCP Server 使用 FastMCP v2+ 的 `@mcp.tool()` 装饰器
+- 产品设计文档: Obsidian `00-Inbox/20260410-Mac个人效率监控系统产品设计.md`

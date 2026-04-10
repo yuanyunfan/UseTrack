@@ -1,0 +1,52 @@
+# macOS
+.DS_Store
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.swp
+
+# Swift
+.build/
+.swiftpm/
+Package.resolved
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv
+python/.venv/
+
+# SQLite
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+# Keep schema.sql
+!db/schema.sql
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment
+.env
+.env.local
+*.pem
+credentials.json
+
+# Logs
+*.log
+logs/
+
+# Backup files from hooks
+claude-progress.txt.bak

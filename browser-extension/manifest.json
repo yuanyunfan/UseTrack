@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "UseTrack URL Tracker",
+  "version": "0.1.0",
+  "description": "Track browser URL visits for UseTrack activity monitoring",
+  "permissions": ["tabs", "activeTab", "nativeMessaging", "storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {}
+}

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- LaunchAgent label (unique identifier) -->
+    <key>Label</key>
+    <string>com.usetrack.collector</string>
+
+    <!-- Path to the collector binary -->
+    <!-- After `swift build`, binary is at .build/debug/UseTrackCollector -->
+    <!-- For production, copy to /usr/local/bin/UseTrackCollector -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/yuan/bin/UseTrackCollector</string>
+        <string>--db-path</string>
+        <string>/Users/yuan/.usetrack/usetrack.db</string>
+    </array>
+
+    <!-- Start automatically at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep alive: restart if the process crashes -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Throttle restarts: wait 10 seconds between crash restarts -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Standard output and error logs -->
+    <key>StandardOutPath</key>
+    <string>/tmp/usetrack-collector.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/usetrack-collector.stderr.log</string>
+
+    <!-- Process type: background (low priority, won't affect UI responsiveness) -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Nice value: lower priority to minimize system impact -->
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

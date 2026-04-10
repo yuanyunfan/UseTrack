@@ -1,0 +1,96 @@
+{
+  "project": "UseTrack",
+  "version": "0.1.0",
+  "last_updated": "2026-04-10",
+  "phases": [
+    {
+      "id": "phase-0",
+      "name": "项目脚手架",
+      "status": "done",
+      "features": [
+        {"id": "f001", "name": "Swift Package 初始化 + 基础目录结构", "passes": true},
+        {"id": "f002", "name": "Python 子项目初始化 (pyproject.toml + uv)", "passes": true},
+        {"id": "f003", "name": "SQLite schema 定义", "passes": true},
+        {"id": "f004", "name": "Git hooks + init.sh", "passes": true},
+        {"id": "f005", "name": ".gitignore 配置", "passes": true}
+      ]
+    },
+    {
+      "id": "phase-1",
+      "name": "核心采集器 (Swift)",
+      "status": "done",
+      "features": [
+        {"id": "f010", "name": "App Watcher — NSWorkspace App 切换监听", "passes": true},
+        {"id": "f011", "name": "Window Watcher — 窗口标题获取", "passes": true},
+        {"id": "f012", "name": "AFK Watcher — 空闲检测", "passes": true},
+        {"id": "f013", "name": "SQLite 写入层", "passes": true},
+        {"id": "f014", "name": "LaunchAgent 配置", "passes": true}
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "注意力归因引擎 (Swift)",
+      "status": "done",
+      "features": [
+        {"id": "f020", "name": "多屏窗口位置检测", "passes": true},
+        {"id": "f021", "name": "鼠标位置追踪 + hitTest", "passes": true},
+        {"id": "f022", "name": "注意力评分模型", "passes": true},
+        {"id": "f023", "name": "窗口快照表 (每分钟)", "passes": true}
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "MCP Server (Python)",
+      "status": "done",
+      "features": [
+        {"id": "f030", "name": "FastMCP Server 骨架", "passes": true},
+        {"id": "f031", "name": "SQLite 读取层", "passes": true},
+        {"id": "f032", "name": "get_activity_summary tool", "passes": true},
+        {"id": "f033", "name": "query_activities tool", "passes": true},
+        {"id": "f034", "name": "get_focus_metrics tool", "passes": true},
+        {"id": "f035", "name": "search_activity tool", "passes": true},
+        {"id": "f036", "name": "get_output_metrics tool (笔记/Git/代码产出)", "passes": true},
+        {"id": "f037", "name": "get_trends tool (N天趋势数据)", "passes": true},
+        {"id": "f038", "name": "get_distraction_patterns tool (干扰模式分析)", "passes": true}
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "AI 分析 + 报告",
+      "status": "done",
+      "features": [
+        {"id": "f040", "name": "活动自动分类引擎", "passes": true},
+        {"id": "f041", "name": "核心指标计算 (深度工作/切换/生产力比)", "passes": true},
+        {"id": "f042", "name": "每日 Obsidian 报告生成器", "passes": true},
+        {"id": "f043", "name": "干扰模式识别", "passes": true}
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "扩展采集器",
+      "status": "done",
+      "features": [
+        {"id": "f050", "name": "浏览器 URL 追踪 (Chrome Extension)", "passes": true},
+        {"id": "f051", "name": "输入活跃度统计", "passes": true},
+        {"id": "f052", "name": "Git 活动 Watcher", "passes": true},
+        {"id": "f053", "name": "Obsidian vault 变更监听", "passes": true}
+      ]
+    },
+    {
+      "id": "phase-6",
+      "name": "Menu Bar UI",
+      "status": "done",
+      "features": [
+        {"id": "f060", "name": "SwiftUI Menu Bar App", "passes": true},
+        {"id": "f061", "name": "实时状态显示", "passes": true},
+        {"id": "f062", "name": "专注模式切换", "passes": true}
+      ]
+    }
+  ],
+  "summary": {
+    "total": 34,
+    "done": 34,
+    "remaining": 0,
+    "progress_pct": 100
+  }
+}

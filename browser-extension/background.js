@@ -1,0 +1,87 @@
+// UseTrack URL Tracker — Chrome Extension Background Service Worker
+
+const NATIVE_HOST = "com.usetrack.browser";
+let lastUrl = "";
+let lastTimestamp = 0;
+const MIN_INTERVAL_MS = 2000; // Minimum 2s between events
+
+// Listen for tab activation (switching tabs)
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+        const tab = await chrome.tabs.get(activeInfo.tabId);
+        if (tab.url) {
+            recordUrl(tab.url, tab.title || "");
+        }
+    } catch (e) {
+        // Tab may have been closed
+    }
+});
+
+// Listen for URL changes within a tab
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === "complete" && tab.active && tab.url) {
+        recordUrl(tab.url, tab.title || "");
+    }
+});
+
+function recordUrl(url, title) {
+    // Skip internal pages
+    if (
+        url.startsWith("chrome://") ||
+        url.startsWith("chrome-extension://") ||
+        url.startsWith("about:") ||
+        url.startsWith("edge://")
+    ) {
+        return;
+    }
+
+    const now = Date.now();
+
+    // Deduplicate: same URL within MIN_INTERVAL
+    if (url === lastUrl && now - lastTimestamp < MIN_INTERVAL_MS) {
+        return;
+    }
+
+    lastUrl = url;
+    lastTimestamp = now;
+
+    const message = {
+        type: "url_visit",
+        url: url,
+        title: title,
+        timestamp: new Date().toISOString(),
+        domain: extractDomain(url),
+    };
+
+    // Try Native Messaging first
+    try {
+        chrome.runtime.sendNativeMessage(NATIVE_HOST, message, (response) => {
+            if (chrome.runtime.lastError) {
+                // Native host not available, store locally
+                storeLocally(message);
+            }
+        });
+    } catch (e) {
+        storeLocally(message);
+    }
+}
+
+function extractDomain(url) {
+    try {
+        return new URL(url).hostname;
+    } catch {
+        return "";
+    }
+}
+
+async function storeLocally(message) {
+    // Store in chrome.storage.local for later retrieval
+    const result = await chrome.storage.local.get("pendingUrls");
+    const pending = result.pendingUrls || [];
+    pending.push(message);
+    // Keep only last 1000 events
+    if (pending.length > 1000) {
+        pending.splice(0, pending.length - 1000);
+    }
+    await chrome.storage.local.set({ pendingUrls: pending });
+}
