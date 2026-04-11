@@ -137,26 +137,70 @@ class DashboardDataStore {
         let db = try connect()
         let range = dayRange(for: date)
 
+        // Fetch raw events with start time and duration
         let query = """
-            SELECT
-                CAST(strftime('%H', ts) AS INTEGER) as hour,
-                ROUND(SUM(MIN(COALESCE(duration_s, 0), 3600)) / 60.0, 1) as active_min,
-                ROUND(SUM(CASE WHEN category = 'deep_work'
-                    THEN MIN(COALESCE(duration_s, 0), 3600) ELSE 0 END) / 60.0, 1) as dw_min
+            SELECT ts, COALESCE(duration_s, 0), COALESCE(category, '')
             FROM activity_stream
             WHERE ts >= ? AND ts < ?
               AND activity NOT IN ('idle_start', 'idle_end')
               AND duration_s IS NOT NULL AND duration_s > 0
-            GROUP BY CAST(strftime('%H', ts) AS INTEGER)
-            ORDER BY hour
+              AND app_name NOT IN ('loginwindow', 'ScreenSaverEngine')
+            ORDER BY ts
         """
 
-        var result: [(hour: Int, activeMin: Double, deepWorkMin: Double)] = []
+        // Accumulate per-hour buckets
+        var activeByHour: [Int: Double] = [:]
+        var dwByHour: [Int: Double] = [:]
+
+        let cal = Calendar.current
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        // Also handle fractional seconds: "2026-04-11T16:00:11.123"
+        let formatterFrac = DateFormatter()
+        formatterFrac.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+        formatterFrac.locale = Locale(identifier: "en_US_POSIX")
+
         for row in try db.prepare(query, [range.start, range.end]) {
-            let hour = (row[0] as? Int64).map { Int($0) } ?? 0
-            let activeMin = min(row[1] as? Double ?? 0, 60.0)
-            let dwMin = min(row[2] as? Double ?? 0, 60.0)
-            result.append((hour: hour, activeMin: activeMin, deepWorkMin: min(dwMin, activeMin)))
+            guard let tsStr = row[0] as? String else { continue }
+            let duration = row[1] as? Double ?? 0
+            let category = row[2] as? String ?? ""
+
+            guard let startDate = formatter.date(from: tsStr) ?? formatterFrac.date(from: String(tsStr.prefix(23))) else { continue }
+
+            let isDeepWork = (category == "deep_work")
+
+            // Split duration across hour boundaries
+            var remaining = duration
+            var cursor = startDate
+
+            while remaining > 0 {
+                let hour = cal.component(.hour, from: cursor)
+                // Seconds until next hour boundary
+                let minuteOfHour = cal.component(.minute, from: cursor)
+                let secondOfHour = cal.component(.second, from: cursor)
+                let secsUntilNextHour = Double((59 - minuteOfHour) * 60 + (60 - secondOfHour))
+                let chunk = min(remaining, secsUntilNextHour)
+
+                activeByHour[hour, default: 0] += chunk
+                if isDeepWork {
+                    dwByHour[hour, default: 0] += chunk
+                }
+
+                remaining -= chunk
+                cursor = cursor.addingTimeInterval(chunk)
+            }
+        }
+
+        // Build result, capping at 60 min per hour
+        var result: [(hour: Int, activeMin: Double, deepWorkMin: Double)] = []
+        for hour in (activeByHour.keys.sorted()) {
+            let activeSec = activeByHour[hour] ?? 0
+            let dwSec = dwByHour[hour] ?? 0
+            let activeMin = min(activeSec / 60.0, 60.0)
+            let dwMin = min(dwSec / 60.0, activeMin)
+            result.append((hour: hour, activeMin: round(activeMin * 10) / 10, deepWorkMin: round(dwMin * 10) / 10))
         }
         return result
     }
