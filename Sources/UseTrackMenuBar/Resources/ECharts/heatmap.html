@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UseTrack Heatmap</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Helvetica Neue", sans-serif;
+    background: transparent;
+}
+#chart { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="chart"></div>
+<script src="echarts.min.js"></script>
+<script>
+(function() {
+    'use strict';
+
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    const theme = {
+        bg: isDark ? '#1E1E1E' : '#FFFFFF',
+        text: isDark ? '#E5E5EA' : '#1C1C1E',
+        subText: isDark ? '#8E8E93' : '#AEAEB2',
+        axisLine: isDark ? '#3A3A3C' : '#D1D1D6',
+        tooltipBg: isDark ? '#2C2C2E' : '#FFFFFF',
+        tooltipBorder: isDark ? '#3A3A3C' : '#D1D1D6',
+        emptyColor: isDark ? '#2C2C2E' : '#F2F2F7',
+        lowColor: isDark ? '#0A3D1F' : '#D1FAE5',
+        highColor: '#34C759'
+    };
+
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const hours = [];
+    for (var i = 0; i < 24; i++) {
+        hours.push(i.toString().padStart(2, '0') + ':00');
+    }
+
+    const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'canvas' });
+
+    function updateChart(input) {
+        if (!input || !input.data || input.data.length === 0) {
+            chart.clear();
+            chart.setOption({
+                title: {
+                    text: 'No heatmap data',
+                    left: 'center', top: 'center',
+                    textStyle: { color: theme.subText, fontSize: 14 }
+                }
+            });
+            return;
+        }
+
+        var rawData = input.data;
+        var maxVal = input.max || 1;
+
+        // Data format: [dayOfWeek, hour, count]
+        // ECharts heatmap expects [x, y, value] → [hour, dayOfWeek, count]
+        var heatData = rawData.map(function(d) {
+            return [d[1], d[0], d[2] || 0];
+        });
+
+        var option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+                position: 'top',
+                backgroundColor: theme.tooltipBg,
+                borderColor: theme.tooltipBorder,
+                textStyle: { color: theme.text, fontSize: 12 },
+                formatter: function(params) {
+                    var dayIdx = params.value[1];
+                    var hour = params.value[0];
+                    var count = params.value[2];
+                    return '<b>' + days[dayIdx] + ' ' + hour.toString().padStart(2, '0') + ':00</b><br/>' +
+                           count + ' events';
+                }
+            },
+            grid: {
+                left: 60, right: 30, top: 20, bottom: 50, containLabel: false
+            },
+            xAxis: {
+                type: 'category',
+                data: hours,
+                splitArea: { show: false },
+                axisLabel: {
+                    color: theme.subText,
+                    fontSize: 10,
+                    interval: 1,
+                    rotate: 0,
+                    formatter: function(val) {
+                        var h = parseInt(val);
+                        return h % 3 === 0 ? val : '';
+                    }
+                },
+                axisLine: { lineStyle: { color: theme.axisLine } },
+                axisTick: { show: false }
+            },
+            yAxis: {
+                type: 'category',
+                data: days,
+                splitArea: { show: false },
+                axisLabel: {
+                    color: theme.text,
+                    fontSize: 11
+                },
+                axisLine: { lineStyle: { color: theme.axisLine } },
+                axisTick: { show: false }
+            },
+            visualMap: {
+                min: 0,
+                max: maxVal,
+                calculable: false,
+                orient: 'horizontal',
+                left: 'center',
+                bottom: 5,
+                itemWidth: 12,
+                itemHeight: 100,
+                textStyle: { color: theme.subText, fontSize: 10 },
+                inRange: {
+                    color: [theme.emptyColor, theme.lowColor, '#6DD58C', theme.highColor, '#248A3D']
+                }
+            },
+            series: [{
+                type: 'heatmap',
+                data: heatData,
+                label: { show: false },
+                emphasis: {
+                    itemStyle: {
+                        shadowBlur: 6,
+                        shadowColor: 'rgba(0, 0, 0, 0.3)'
+                    }
+                },
+                itemStyle: {
+                    borderRadius: 3,
+                    borderWidth: 2,
+                    borderColor: isDark ? '#1E1E1E' : '#FFFFFF'
+                }
+            }]
+        };
+
+        chart.setOption(option, true);
+    }
+
+    // Listen for theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+        location.reload();
+    });
+
+    // Resize observer
+    var ro = new ResizeObserver(function() { chart.resize(); });
+    ro.observe(document.getElementById('chart'));
+
+    // Expose to Swift
+    window.updateChart = updateChart;
+
+    // Initial empty state
+    updateChart({ data: [], max: 0 });
+})();
+</script>
+</body>
+</html>

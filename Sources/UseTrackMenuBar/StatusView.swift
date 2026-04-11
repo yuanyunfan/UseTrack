@@ -86,6 +86,17 @@ struct StatusView: View {
 
             Divider()
 
+            // Dashboard button
+            Button {
+                NotificationCenter.default.post(name: .openDashboard, object: nil)
+            } label: {
+                HStack {
+                    Image(systemName: "chart.bar.fill")
+                    Text("打开 Dashboard")
+                }
+            }
+            .font(.caption)
+
             // Quit button
             Button("退出 UseTrack") {
                 NSApplication.shared.terminate(nil)

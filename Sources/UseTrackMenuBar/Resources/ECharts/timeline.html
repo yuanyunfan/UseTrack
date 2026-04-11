@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UseTrack Timeline</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Helvetica Neue", sans-serif;
+    background: transparent;
+}
+#chart { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="chart"></div>
+<script src="echarts.min.js"></script>
+<script>
+(function() {
+    'use strict';
+
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    const categoryColors = {
+        deep_work:      '#34C759',
+        communication:  '#007AFF',
+        learning:       '#FFD60A',
+        browsing:       '#FF9F0A',
+        entertainment:  '#FF3B30',
+        system:         '#8E8E93',
+        other:          '#AEAEB2'
+    };
+
+    const categoryLabels = {
+        deep_work:      'Deep Work',
+        communication:  'Communication',
+        learning:       'Learning',
+        browsing:       'Browsing',
+        entertainment:  'Entertainment',
+        system:         'System',
+        other:          'Other'
+    };
+
+    const theme = {
+        bg: isDark ? '#1E1E1E' : '#FFFFFF',
+        text: isDark ? '#E5E5EA' : '#1C1C1E',
+        subText: isDark ? '#8E8E93' : '#AEAEB2',
+        axisLine: isDark ? '#3A3A3C' : '#D1D1D6',
+        splitLine: isDark ? '#2C2C2E' : '#E5E5EA',
+        tooltipBg: isDark ? '#2C2C2E' : '#FFFFFF',
+        tooltipBorder: isDark ? '#3A3A3C' : '#D1D1D6'
+    };
+
+    const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'canvas' });
+
+    function formatTime(isoStr) {
+        const d = new Date(isoStr);
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+    }
+
+    function formatDuration(min) {
+        if (min >= 60) {
+            const h = Math.floor(min / 60);
+            const m = Math.round(min % 60);
+            return h + 'h ' + m + 'm';
+        }
+        return Math.round(min) + 'm';
+    }
+
+    // Generate 24-hour time axis base date
+    function dayBase(isoStr) {
+        const d = new Date(isoStr);
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+
+    function updateChart(data) {
+        if (!data || data.length === 0) {
+            chart.clear();
+            chart.setOption({
+                title: {
+                    text: 'No activity data',
+                    left: 'center', top: 'center',
+                    textStyle: { color: theme.subText, fontSize: 14 }
+                }
+            });
+            return;
+        }
+
+        // Collect unique apps (ordered by first appearance)
+        const appSet = new Set();
+        data.forEach(function(d) { appSet.add(d.app); });
+        const apps = Array.from(appSet);
+
+        // Base timestamp (start of day)
+        const base = dayBase(data[0].start);
+        const dayEnd = base + 24 * 3600 * 1000;
+
+        // Build series data: one rect per event
+        var seriesData = data.map(function(d) {
+            var startTs = new Date(d.start).getTime();
+            var endTs = new Date(d.end).getTime();
+            var appIdx = apps.indexOf(d.app);
+            return {
+                value: [appIdx, startTs, endTs, d.duration_min, d.category, d.app],
+                itemStyle: { color: categoryColors[d.category] || categoryColors.other }
+            };
+        });
+
+        // Custom series: horizontal bars
+        var option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'item',
+                backgroundColor: theme.tooltipBg,
+                borderColor: theme.tooltipBorder,
+                textStyle: { color: theme.text, fontSize: 12 },
+                formatter: function(params) {
+                    var v = params.value;
+                    return '<b>' + v[5] + '</b><br/>' +
+                           formatTime(new Date(v[1]).toISOString()) + ' — ' +
+                           formatTime(new Date(v[2]).toISOString()) + '<br/>' +
+                           (categoryLabels[v[4]] || v[4]) + ' · ' + formatDuration(v[3]);
+                }
+            },
+            grid: {
+                left: 120, right: 30, top: 20, bottom: 40, containLabel: false
+            },
+            xAxis: {
+                type: 'time',
+                min: base,
+                max: dayEnd,
+                axisLabel: {
+                    color: theme.subText,
+                    formatter: function(val) {
+                        var d = new Date(val);
+                        return d.getHours().toString().padStart(2, '0') + ':00';
+                    }
+                },
+                axisLine: { lineStyle: { color: theme.axisLine } },
+                splitLine: { show: true, lineStyle: { color: theme.splitLine, type: 'dashed' } }
+            },
+            yAxis: {
+                type: 'category',
+                data: apps,
+                inverse: true,
+                axisLabel: {
+                    color: theme.text,
+                    fontSize: 11,
+                    width: 100,
+                    overflow: 'truncate'
+                },
+                axisLine: { lineStyle: { color: theme.axisLine } },
+                splitLine: { show: false }
+            },
+            series: [{
+                type: 'custom',
+                renderItem: function(params, api) {
+                    var yIdx = api.value(0);
+                    var startTs = api.coord([api.value(1), yIdx]);
+                    var endTs = api.coord([api.value(2), yIdx]);
+                    var bandWidth = api.size([0, 1])[1] * 0.6;
+                    return {
+                        type: 'rect',
+                        shape: {
+                            x: startTs[0],
+                            y: startTs[1] - bandWidth / 2,
+                            width: Math.max(endTs[0] - startTs[0], 2),
+                            height: bandWidth
+                        },
+                        style: api.style(),
+                        styleEmphasis: { opacity: 0.8 }
+                    };
+                },
+                encode: {
+                    x: [1, 2],
+                    y: 0
+                },
+                data: seriesData
+            }]
+        };
+
+        chart.setOption(option, true);
+    }
+
+    // Listen for theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+        location.reload();
+    });
+
+    // Resize observer
+    var ro = new ResizeObserver(function() { chart.resize(); });
+    ro.observe(document.getElementById('chart'));
+
+    // Expose to Swift
+    window.updateChart = updateChart;
+
+    // Initial empty state
+    updateChart([]);
+})();
+</script>
+</body>
+</html>

@@ -26,6 +26,9 @@ let package = Package(
             name: "UseTrackMenuBar",
             dependencies: [
                 .product(name: "SQLite", package: "SQLite.swift"),
+            ],
+            resources: [
+                .copy("Resources/ECharts")
             ]
         ),
         .testTarget(

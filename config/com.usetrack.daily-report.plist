@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.usetrack.daily-report</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/yuan/ProjectRepo/UseTrack/python/.venv/bin/python</string>
+        <string>/Users/yuan/ProjectRepo/UseTrack/scripts/daily_discord_report.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/yuan/ProjectRepo/UseTrack</string>
+
+    <!-- 每天 17:30 执行 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>17</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/usetrack-daily-report.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/usetrack-daily-report.stderr.log</string>
+</dict>
+</plist>

@@ -14,6 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover!
     var statusViewModel = StatusViewModel()
     var updateTimer: Timer?
+    let dashboardWindowController = DashboardWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create status bar item
@@ -36,8 +37,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusViewModel.refresh()
         }
 
+        // Listen for dashboard open notification
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(openDashboard),
+            name: .openDashboard,
+            object: nil
+        )
+
         // Initial update
         statusViewModel.refresh()
+    }
+
+    @objc func openDashboard() {
+        popover.performClose(nil)
+        dashboardWindowController.showWindow(nil)
     }
 
     @objc func togglePopover() {
