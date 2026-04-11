@@ -1,6 +1,12 @@
-# UseTrack
+<p align="center">
+  <img src="assets/AppIcon.png" width="128" height="128" alt="UseTrack Icon">
+</p>
 
-> macOS 本地化的个人电脑使用监控系统 — 记录你做了什么，AI 告诉你哪里可以更好。
+<h1 align="center">UseTrack</h1>
+
+<p align="center">
+  macOS 本地化的个人电脑使用监控系统 — 记录你做了什么，AI 告诉你哪里可以更好。
+</p>
 
 UseTrack 是一个隐私优先的效率监控工具。Swift 后台守护进程采集你的电脑使用行为（App 切换、窗口标题、空闲时间、输入活跃度、Git/Obsidian 产出），通过 MCP 协议暴露给 Claude 等 AI 做效率分析，并自动生成每日 Obsidian 效率报告。
 
