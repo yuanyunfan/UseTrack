@@ -154,9 +154,9 @@ class DashboardDataStore {
         var result: [(hour: Int, activeMin: Double, deepWorkMin: Double)] = []
         for row in try db.prepare(query, [range.start, range.end]) {
             let hour = (row[0] as? Int64).map { Int($0) } ?? 0
-            let activeMin = row[1] as? Double ?? 0
-            let dwMin = row[2] as? Double ?? 0
-            result.append((hour: hour, activeMin: activeMin, deepWorkMin: dwMin))
+            let activeMin = min(row[1] as? Double ?? 0, 60.0)
+            let dwMin = min(row[2] as? Double ?? 0, 60.0)
+            result.append((hour: hour, activeMin: activeMin, deepWorkMin: min(dwMin, activeMin)))
         }
         return result
     }
