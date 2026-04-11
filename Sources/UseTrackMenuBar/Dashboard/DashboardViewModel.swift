@@ -214,6 +214,11 @@ class DashboardViewModel: ObservableObject {
         }
     }
 
+    /// Change category for an app (from Top Apps dot click) — creates/updates rule + backfills history
+    func changeAppCategory(appName: String, category: String) {
+        addAppRule(pattern: appName, category: category)
+    }
+
     func deleteAppRule(id: Int64) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }

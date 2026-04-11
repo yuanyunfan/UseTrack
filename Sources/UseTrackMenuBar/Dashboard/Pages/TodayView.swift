@@ -35,7 +35,9 @@ struct TodayView: View {
                 // 底部两列
                 HStack(alignment: .top, spacing: 16) {
                     CategoryPieChart(data: viewModel.categories)
-                    TopAppsRankView(apps: viewModel.topApps)
+                    TopAppsRankView(apps: viewModel.topApps) { appName, newCategory in
+                        viewModel.changeAppCategory(appName: appName, category: newCategory)
+                    }
                 }
             }
             .padding()
