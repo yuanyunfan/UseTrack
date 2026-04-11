@@ -42,10 +42,12 @@ enum DashboardPage: String, CaseIterable, Identifiable {
 struct DashboardView: View {
     @ObservedObject var viewModel: DashboardViewModel
     @State private var selectedPage: DashboardPage = .today
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(selectedPage: $selectedPage, viewModel: viewModel)
+                .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
         } detail: {
             detailView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

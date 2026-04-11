@@ -19,6 +19,21 @@ class AppWatcher {
     private var lastSwitchTime: Date?
     private var lastAppName: String?
 
+    /// System processes that should never be recorded as user activity.
+    /// These are macOS internal processes that become "frontmost" during
+    /// lock screen, notifications, screenshots, etc.
+    private static let ignoredApps: Set<String> = [
+        "loginwindow",              // Lock screen / login
+        "ScreenSaverEngine",        // Screen saver
+        "UserNotificationCenter",   // Notification banners
+        "SecurityAgent",            // Password prompts
+        "ScreenCaptureUI",          // Screenshot UI (Cmd+Shift+4)
+        "universalAccessAuthWarn",  // Accessibility prompts
+        "CoreServicesUIAgent",      // System dialogs
+        "AXVisualSupportAgent",     // Accessibility
+        "OSDUIHelper",              // Volume/brightness overlay
+    ]
+
     init(dbManager: DatabaseManager) {
         self.dbManager = dbManager
     }
@@ -30,6 +45,19 @@ class AppWatcher {
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             let appName = frontApp.localizedName ?? "Unknown"
             let bundleId = frontApp.bundleIdentifier ?? ""
+
+            // Skip system processes
+            guard !Self.ignoredApps.contains(appName) else {
+                // Still set up the observer
+                NSWorkspace.shared.notificationCenter.addObserver(
+                    self,
+                    selector: #selector(appDidActivate(_:)),
+                    name: NSWorkspace.didActivateApplicationNotification,
+                    object: nil
+                )
+                return
+            }
+
             lastAppName = appName
             lastSwitchTime = Date()
 
@@ -74,9 +102,15 @@ class AppWatcher {
         // Skip if same app (sometimes fires duplicate notifications)
         guard appName != lastAppName else { return }
 
+        // Skip system processes that aren't real user activity
+        if Self.ignoredApps.contains(appName) {
+            // Don't update lastSwitchTime — the previous app is still "in use"
+            // (e.g. lock screen shouldn't count as switching away from Cursor)
+            return
+        }
+
         // Check sensitive app blacklist
         if dbManager.isSensitiveApp(appName: appName) {
-            // Still update timing but don't record app name/title
             recordSwitch(appName: "[Redacted]", bundleId: bundleId, windowTitle: nil, at: now)
         } else {
             recordSwitch(appName: appName, bundleId: bundleId, windowTitle: nil, at: now)

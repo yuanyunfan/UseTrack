@@ -17,6 +17,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let dashboardWindowController = DashboardWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Start Collector subprocess (if not already running)
+        startCollectorIfNeeded()
+
         // Create status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -62,6 +65,63 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             }
         }
+    }
+
+    // MARK: - Collector Subprocess
+
+    private var collectorProcess: Process?
+
+    /// Launch UseTrackCollector as a subprocess, located next to this binary in the App bundle.
+    private func startCollectorIfNeeded() {
+        // Check if Collector is already running (e.g. from a previous launch)
+        let check = Process()
+        check.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        check.arguments = ["-f", "UseTrackCollector"]
+        check.standardOutput = FileHandle.nullDevice
+        check.standardError = FileHandle.nullDevice
+        try? check.run()
+        check.waitUntilExit()
+        if check.terminationStatus == 0 {
+            print("[UseTrack] Collector already running, skipping launch")
+            return
+        }
+
+        // Find Collector binary next to this executable (same directory)
+        let executableURL = Bundle.main.executableURL ?? URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+        let macOSDir = executableURL.deletingLastPathComponent()
+        let collectorURL = macOSDir.appendingPathComponent("UseTrackCollector")
+        let dbPath = NSHomeDirectory() + "/.usetrack/usetrack.db"
+
+        print("[UseTrack] Looking for Collector at: \(collectorURL.path)")
+
+        // Ensure data directory exists
+        try? FileManager.default.createDirectory(
+            atPath: NSHomeDirectory() + "/.usetrack",
+            withIntermediateDirectories: true
+        )
+
+        guard FileManager.default.fileExists(atPath: collectorURL.path) else {
+            print("[UseTrack] Collector not found at: \(collectorURL.path)")
+            return
+        }
+
+        let process = Process()
+        process.executableURL = collectorURL
+        process.arguments = ["--db-path", dbPath]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            collectorProcess = process
+            print("[UseTrack] Collector started (PID: \(process.processIdentifier))")
+        } catch {
+            print("[UseTrack] Failed to start Collector: \(error)")
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        collectorProcess?.terminate()
     }
 }
 

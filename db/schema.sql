@@ -149,7 +149,11 @@ INSERT OR IGNORE INTO app_rules (pattern, category) VALUES
     ('PyCharm', 'deep_work'),
     ('IntelliJ IDEA', 'deep_work'),
     ('Notes', 'deep_work'),
-    ('Calculator', 'system');
+    ('Calculator', 'system'),
+    ('loginwindow', 'system'),
+    ('ScreenSaverEngine', 'system'),
+    ('UserNotificationCenter', 'system'),
+    ('SecurityAgent', 'system');
 
 -- ============================================================
 -- Sensitive app blacklist (skip data collection for these)
