@@ -423,12 +423,6 @@ class DashboardDataStore {
         return result
     }
 
-    func addAppRule(pattern: String, category: String) throws {
-        let db = try connectReadWrite()
-        let sql = "INSERT OR IGNORE INTO app_rules (pattern, category) VALUES (?, ?)"
-        try db.run(sql, [pattern, category])
-    }
-
     func deleteAppRule(id: Int64) throws {
         let db = try connectReadWrite()
         let sql = "DELETE FROM app_rules WHERE id = ?"
@@ -437,8 +431,33 @@ class DashboardDataStore {
 
     func updateAppRuleCategory(id: Int64, category: String) throws {
         let db = try connectReadWrite()
-        let sql = "UPDATE app_rules SET category = ? WHERE id = ?"
-        try db.run(sql, [category, id])
+        // 1. Get the app name for this rule
+        var pattern: String?
+        for row in try db.prepare("SELECT pattern FROM app_rules WHERE id = ?", [id]) {
+            pattern = row[0] as? String
+        }
+        // 2. Update the rule
+        try db.run("UPDATE app_rules SET category = ? WHERE id = ?", [category, id])
+        // 3. Backfill: update all historical events for this app
+        if let appName = pattern {
+            try db.run(
+                "UPDATE activity_stream SET category = ? WHERE app_name = ?",
+                [category, appName]
+            )
+        }
+    }
+
+    func addAppRule(pattern: String, category: String) throws {
+        let db = try connectReadWrite()
+        try db.run(
+            "INSERT OR REPLACE INTO app_rules (pattern, category) VALUES (?, ?)",
+            [pattern, category]
+        )
+        // Backfill: update all historical events for this app
+        try db.run(
+            "UPDATE activity_stream SET category = ? WHERE app_name = ?",
+            [category, pattern]
+        )
     }
 
     // MARK: - DB Info

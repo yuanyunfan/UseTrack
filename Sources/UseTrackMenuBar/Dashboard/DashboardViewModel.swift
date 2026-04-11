@@ -207,6 +207,7 @@ class DashboardViewModel: ObservableObject {
             do {
                 try self.store.addAppRule(pattern: pattern, category: category)
                 self.loadSettings()
+                self.loadToday()  // Refresh dashboard after category change
             } catch {
                 print("[Dashboard] addAppRule error: \(error)")
             }
@@ -231,6 +232,7 @@ class DashboardViewModel: ObservableObject {
             do {
                 try self.store.updateAppRuleCategory(id: id, category: category)
                 self.loadSettings()
+                self.loadToday()  // Refresh dashboard after category change
             } catch {
                 print("[Dashboard] updateAppRuleCategory error: \(error)")
             }
