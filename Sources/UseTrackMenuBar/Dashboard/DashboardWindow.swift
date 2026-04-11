@@ -32,14 +32,14 @@ class DashboardWindowController {
 
         // Create window
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 780),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         w.title = "UseTrack Dashboard"
         w.contentViewController = hostingController
-        w.minSize = NSSize(width: 700, height: 500)
+        w.minSize = NSSize(width: 900, height: 600)
         w.isReleasedWhenClosed = false
         w.center()
 
