@@ -10,13 +10,13 @@ struct SettingsView: View {
 
     static let categoryOptions = ["deep_work", "communication", "learning", "browsing", "entertainment", "system"]
 
-    static let categoryEmoji: [String: String] = [
-        "deep_work": "🟢",
-        "communication": "🔵",
-        "learning": "🟡",
-        "browsing": "🟠",
-        "entertainment": "🔴",
-        "system": "⚪",
+    static let categoryLabels: [String: String] = [
+        "deep_work": "Deep Work",
+        "communication": "Communication",
+        "learning": "Learning",
+        "browsing": "Browsing",
+        "entertainment": "Entertainment",
+        "system": "System",
     ]
 
     var body: some View {
@@ -27,8 +27,9 @@ struct SettingsView: View {
             List {
                 ForEach(viewModel.appRules) { rule in
                     HStack {
-                        Text(Self.categoryEmoji[rule.category] ?? "⚪")
-                            .frame(width: 20)
+                        Circle()
+                            .fill(CategoryData.color(for: rule.category))
+                            .frame(width: 8, height: 8)
 
                         Text(rule.pattern)
                             .font(.body)
@@ -36,7 +37,7 @@ struct SettingsView: View {
 
                         Spacer()
 
-                        // Category picker (editable)
+                        // Category picker
                         Picker("", selection: Binding(
                             get: { rule.category },
                             set: { newCat in
@@ -44,11 +45,7 @@ struct SettingsView: View {
                             }
                         )) {
                             ForEach(Self.categoryOptions, id: \.self) { cat in
-                                HStack {
-                                    Text(Self.categoryEmoji[cat] ?? "⚪")
-                                    Text(cat)
-                                }
-                                .tag(cat)
+                                Text(Self.categoryLabels[cat] ?? cat).tag(cat)
                             }
                         }
                         .frame(width: 160)
@@ -72,11 +69,7 @@ struct SettingsView: View {
 
                 Picker("", selection: $newCategory) {
                     ForEach(Self.categoryOptions, id: \.self) { cat in
-                        HStack {
-                            Text(Self.categoryEmoji[cat] ?? "⚪")
-                            Text(cat)
-                        }
-                        .tag(cat)
+                        Text(Self.categoryLabels[cat] ?? cat).tag(cat)
                     }
                 }
                 .frame(width: 160)
