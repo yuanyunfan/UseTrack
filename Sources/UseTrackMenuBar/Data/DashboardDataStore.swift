@@ -86,9 +86,9 @@ class DashboardDataStore {
         let db = try connect()
         let range = dayRange(for: date)
 
-        // Deep work minutes
+        // Deep work minutes (cap each event at 60min to exclude idle-while-focused)
         let dwQuery = """
-            SELECT ROUND(SUM(COALESCE(duration_s, 0)) / 60.0, 1)
+            SELECT ROUND(SUM(MIN(COALESCE(duration_s, 0), 3600)) / 60.0, 1)
             FROM activity_stream
             WHERE ts >= ? AND ts < ? AND category = 'deep_work'
         """
@@ -96,7 +96,7 @@ class DashboardDataStore {
 
         // Total active minutes
         let totalQuery = """
-            SELECT ROUND(SUM(COALESCE(duration_s, 0)) / 60.0, 1)
+            SELECT ROUND(SUM(MIN(COALESCE(duration_s, 0), 3600)) / 60.0, 1)
             FROM activity_stream
             WHERE ts >= ? AND ts < ?
               AND activity NOT IN ('idle_start', 'idle_end')
@@ -140,9 +140,9 @@ class DashboardDataStore {
         let query = """
             SELECT
                 CAST(strftime('%H', ts) AS INTEGER) as hour,
-                ROUND(SUM(COALESCE(duration_s, 0)) / 60.0, 1) as active_min,
+                ROUND(SUM(MIN(COALESCE(duration_s, 0), 3600)) / 60.0, 1) as active_min,
                 ROUND(SUM(CASE WHEN category = 'deep_work'
-                    THEN COALESCE(duration_s, 0) ELSE 0 END) / 60.0, 1) as dw_min
+                    THEN MIN(COALESCE(duration_s, 0), 3600) ELSE 0 END) / 60.0, 1) as dw_min
             FROM activity_stream
             WHERE ts >= ? AND ts < ?
               AND activity NOT IN ('idle_start', 'idle_end')
@@ -169,7 +169,7 @@ class DashboardDataStore {
 
         let query = """
             SELECT category,
-                   ROUND(SUM(COALESCE(duration_s, 0)) / 60.0, 1) as minutes
+                   ROUND(SUM(MIN(COALESCE(duration_s, 0), 3600)) / 60.0, 1) as minutes
             FROM activity_stream
             WHERE ts >= ? AND ts < ?
               AND category IS NOT NULL
@@ -195,7 +195,7 @@ class DashboardDataStore {
         let query = """
             SELECT app_name,
                    COALESCE(category, 'other') as category,
-                   ROUND(SUM(COALESCE(duration_s, 0)) / 60.0, 1) as minutes
+                   ROUND(SUM(MIN(COALESCE(duration_s, 0), 3600)) / 60.0, 1) as minutes
             FROM activity_stream
             WHERE ts >= ? AND ts < ?
               AND activity = 'app_switch' AND app_name IS NOT NULL
