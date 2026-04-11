@@ -225,6 +225,18 @@ class DashboardViewModel: ObservableObject {
         }
     }
 
+    func updateAppRuleCategory(id: Int64, category: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            do {
+                try self.store.updateAppRuleCategory(id: id, category: category)
+                self.loadSettings()
+            } catch {
+                print("[Dashboard] updateAppRuleCategory error: \(error)")
+            }
+        }
+    }
+
     // MARK: - Formatting Helpers
 
     func formatMinutes(_ min: Double) -> String {

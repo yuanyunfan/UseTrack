@@ -31,7 +31,7 @@ struct TimelineEvent {
 struct AppRule: Identifiable {
     let id: Int64
     let pattern: String
-    let category: String
+    var category: String
 }
 
 // MARK: - DashboardDataStore
@@ -433,6 +433,12 @@ class DashboardDataStore {
         let db = try connectReadWrite()
         let sql = "DELETE FROM app_rules WHERE id = ?"
         try db.run(sql, [id])
+    }
+
+    func updateAppRuleCategory(id: Int64, category: String) throws {
+        let db = try connectReadWrite()
+        let sql = "UPDATE app_rules SET category = ? WHERE id = ?"
+        try db.run(sql, [category, id])
     }
 
     // MARK: - DB Info
