@@ -10,6 +10,10 @@
 
 UseTrack 是一个隐私优先的效率监控工具。Swift 后台守护进程采集你的电脑使用行为（App 切换、窗口标题、空闲时间、输入活跃度、Git/Obsidian 产出），通过 MCP 协议暴露给 Claude 等 AI 做效率分析，并自动生成每日 Obsidian 效率报告。
 
+<p align="center">
+  <img src="assets/dashboard-screenshot.png" alt="UseTrack Dashboard" width="800">
+</p>
+
 ## 特性
 
 ### 数据采集（Swift 守护进程）
