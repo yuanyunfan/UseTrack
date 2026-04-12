@@ -367,36 +367,37 @@ class DashboardDataStore {
 
         switch metric {
         case "deep_work":
+            // substr(ts,1,10) 提取日期部分，比 date(ts) 更轻量且不阻止索引
             query = """
-                SELECT date(ts) as d,
+                SELECT substr(ts, 1, 10) as d,
                        ROUND(SUM(CASE WHEN category = 'deep_work'
                            THEN COALESCE(duration_s, 0) ELSE 0 END) / 60.0, 1) as value
                 FROM activity_stream
                 WHERE ts >= ? AND ts < ?
-                GROUP BY date(ts)
+                GROUP BY substr(ts, 1, 10)
                 ORDER BY d
             """
         case "context_switches":
             query = """
-                SELECT date(ts) as d, COUNT(*) as value
+                SELECT substr(ts, 1, 10) as d, COUNT(*) as value
                 FROM activity_stream
                 WHERE ts >= ? AND ts < ? AND activity = 'app_switch'
-                GROUP BY date(ts)
+                GROUP BY substr(ts, 1, 10)
                 ORDER BY d
             """
         case "active_time":
             query = """
-                SELECT date(ts) as d,
+                SELECT substr(ts, 1, 10) as d,
                        ROUND(SUM(COALESCE(duration_s, 0)) / 60.0, 1) as value
                 FROM activity_stream
                 WHERE ts >= ? AND ts < ?
                   AND activity NOT IN ('idle_start', 'idle_end')
-                GROUP BY date(ts)
+                GROUP BY substr(ts, 1, 10)
                 ORDER BY d
             """
         case "productivity":
             query = """
-                SELECT date(ts) as d,
+                SELECT substr(ts, 1, 10) as d,
                        ROUND(
                            SUM(CASE WHEN category = 'deep_work'
                                THEN COALESCE(duration_s, 0) ELSE 0 END)
@@ -406,7 +407,7 @@ class DashboardDataStore {
                        ) as value
                 FROM activity_stream
                 WHERE ts >= ? AND ts < ?
-                GROUP BY date(ts)
+                GROUP BY substr(ts, 1, 10)
                 ORDER BY d
             """
         default:

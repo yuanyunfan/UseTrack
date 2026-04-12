@@ -244,43 +244,43 @@ class DatabaseManager {
             try insertSensitive.run(appName, reason)
         }
 
-        // Views
+        // Views — 使用 substr(ts,1,10) 替代 date(ts) 避免索引失效
         try db.execute("""
             CREATE VIEW IF NOT EXISTS v_daily_app_usage AS
             SELECT
-                date(ts) AS date,
+                substr(ts, 1, 10) AS date,
                 app_name,
                 category,
                 COUNT(*) AS event_count,
                 ROUND(SUM(COALESCE(duration_s, 0)) / 60.0, 1) AS total_minutes
             FROM activity_stream
             WHERE activity = 'app_switch'
-            GROUP BY date(ts), app_name, category
+            GROUP BY substr(ts, 1, 10), app_name, category
             ORDER BY date DESC, total_minutes DESC
         """)
 
         try db.execute("""
             CREATE VIEW IF NOT EXISTS v_hourly_heatmap AS
             SELECT
-                date(ts) AS date,
+                substr(ts, 1, 10) AS date,
                 CAST(strftime('%H', ts) AS INTEGER) AS hour,
                 COUNT(*) AS events,
                 ROUND(SUM(CASE WHEN category = 'deep_work' THEN COALESCE(duration_s, 0) ELSE 0 END) / 60.0, 1) AS deep_work_min,
                 COUNT(DISTINCT app_name) AS unique_apps
             FROM activity_stream
-            GROUP BY date(ts), strftime('%H', ts)
+            GROUP BY substr(ts, 1, 10), strftime('%H', ts)
             ORDER BY date DESC, hour
         """)
 
         try db.execute("""
             CREATE VIEW IF NOT EXISTS v_context_switches AS
             SELECT
-                date(ts) AS date,
+                substr(ts, 1, 10) AS date,
                 CAST(strftime('%H', ts) AS INTEGER) AS hour,
                 COUNT(*) AS switches
             FROM activity_stream
             WHERE activity = 'app_switch'
-            GROUP BY date(ts), strftime('%H', ts)
+            GROUP BY substr(ts, 1, 10), strftime('%H', ts)
             ORDER BY date DESC, hour
         """)
     }

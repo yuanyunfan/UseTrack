@@ -34,13 +34,11 @@ struct UseTrackCollector: ParsableCommand {
 
         if verbose { print("Database initialized at: \(expandedPath)") }
 
-        // --- Phase 1: Core Watchers ---
+        // --- Create Watchers ---
 
         let appWatcher = AppWatcher(dbManager: db)
-        appWatcher.start()
-
         let windowWatcher = WindowWatcher(dbManager: db)
-        windowWatcher.start()
+        let afkWatcher = AFKWatcher(dbManager: db)
 
         // Check Screen Recording permission
         if !Self.checkScreenRecordingPermission() {
@@ -48,38 +46,21 @@ struct UseTrackCollector: ParsableCommand {
             print("     Grant in: System Settings → Privacy & Security → Screen Recording")
         }
 
-        let afkWatcher = AFKWatcher(dbManager: db)
-        afkWatcher.start()
-
-        print("UseTrack Collector running.")
-        print("  ✓ App Watcher — monitoring app switches")
-        print("  ✓ Window Watcher — polling window titles (5s interval)")
-        print("  ✓ AFK Watcher — idle detection (5min threshold)")
-
-        // --- Phase 2: Attention Engine ---
-
+        // Attention Engine
         let screenDetector = ScreenDetector()
         let mouseTracker = MouseTracker()
-        mouseTracker.start()
-
         let attentionScorer = AttentionScorer(
             screenDetector: screenDetector,
             mouseTracker: mouseTracker,
             dbManager: db
         )
-
         let snapshotTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             attentionScorer.captureAndStore()
         }
 
-        print("  ✓ Attention Scorer — multi-screen window snapshots (60s interval)")
-        print("  ✓ Mouse Tracker — tracking position, clicks, scrolls")
-
-        // --- Phase 3: Extended Watchers ---
-
         let inputWatcher = InputWatcher(dbManager: db)
-        inputWatcher.start()
 
+        // Extended Watchers (不由 TrackingEngine 管理，独立运行)
         let gitRepoPaths = gitPaths.split(separator: ",").map {
             NSString(string: String($0).trimmingCharacters(in: .whitespaces)).expandingTildeInPath
         }
@@ -90,9 +71,38 @@ struct UseTrackCollector: ParsableCommand {
         let obsidianWatcher = ObsidianWatcher(dbManager: db, vaultPath: expandedVaultPath)
         obsidianWatcher.start()
 
+        // --- TrackingEngine: 统一状态机管理核心 Watcher ---
+
+        let engine = TrackingEngine(
+            appWatcher: appWatcher,
+            windowWatcher: windowWatcher,
+            afkWatcher: afkWatcher,
+            inputWatcher: inputWatcher,
+            attentionScorer: attentionScorer,
+            mouseTracker: mouseTracker
+        )
+
+        // 连接 AFKWatcher 回调 → TrackingEngine 状态转换
+        afkWatcher.onIdleStateChanged = { [weak engine] isIdle in
+            if isIdle {
+                engine?.userDidBecomeIdle()
+            } else {
+                engine?.userDidBecomeActive()
+            }
+        }
+
+        engine.start()
+
+        print("UseTrack Collector running (TrackingEngine: active).")
+        print("  ✓ App Watcher — monitoring app switches")
+        print("  ✓ Window Watcher — polling window titles + browser URL (AppleScript)")
+        print("  ✓ AFK Watcher — idle detection (5min threshold)")
+        print("  ✓ Attention Scorer — multi-screen window snapshots (60s interval)")
+        print("  ✓ Mouse Tracker — tracking position, clicks, scrolls")
         print("  ✓ Input Watcher — keystroke/click counting (1min aggregation)")
         print("  ✓ Git Watcher — scanning repos for commits (5min interval)")
         print("  ✓ Obsidian Watcher — tracking note word counts (5min interval)")
+        print("  ✓ TrackingEngine — state machine (active/idle/locked/asleep)")
 
         if verbose {
             print("  Database: \(expandedPath)")
@@ -100,7 +110,7 @@ struct UseTrackCollector: ParsableCommand {
 
         // --- Keep all objects alive for the process lifetime ---
         keepAlive = [
-            appWatcher, windowWatcher, afkWatcher,
+            engine, appWatcher, windowWatcher, afkWatcher,
             screenDetector, mouseTracker, attentionScorer,
             inputWatcher, gitWatcher, obsidianWatcher,
         ]
@@ -110,11 +120,7 @@ struct UseTrackCollector: ParsableCommand {
         signal(SIGTERM) { sig in
             print("\nUseTrack Collector shutting down (signal \(sig))...")
             for obj in keepAlive {
-                if let w = obj as? AppWatcher { w.stop() }
-                if let w = obj as? WindowWatcher { w.stop() }
-                if let w = obj as? AFKWatcher { w.stop() }
-                if let w = obj as? MouseTracker { w.stop() }
-                if let w = obj as? InputWatcher { w.stop() }
+                if let e = obj as? TrackingEngine { e.stop() }
                 if let w = obj as? GitWatcher { w.stop() }
                 if let w = obj as? ObsidianWatcher { w.stop() }
             }

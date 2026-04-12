@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -47,6 +48,10 @@ REPORT_TEMPLATE = Template(
 {% for s in suggestions %}{{ loop.index }}. {{ s }}
 {% endfor %}{% endif %}
 
+{% if ai_summary %}### 深度分析 (Claude)
+{{ ai_summary }}
+{% endif %}
+
 ---
 *由 UseTrack 自动生成 · {{ generated_at }}*
 """
@@ -66,9 +71,15 @@ CATEGORY_ICONS: dict[str, str] = {
 class DailyReporter:
     """Generate daily efficiency reports as Obsidian markdown."""
 
-    def __init__(self, db: UseTrackDB, output_dir: Path = DAILY_NOTES_DIR):
+    def __init__(
+        self,
+        db: UseTrackDB,
+        output_dir: Path = DAILY_NOTES_DIR,
+        use_ai: bool = True,
+    ):
         self.db = db
         self.output_dir = output_dir
+        self.use_ai = use_ai and bool(os.environ.get("ANTHROPIC_API_KEY"))
 
     async def generate_report(self, target_date: str = "today") -> str:
         """Generate a complete daily report as markdown string."""
@@ -120,17 +131,32 @@ class DailyReporter:
         # Distraction summary
         distraction_summary = self._format_distraction(distraction)
 
-        # Suggestions based on data
-        suggestions = self._generate_suggestions(
-            deep_work_min, context_switches, ping_pong, distraction, total_active_min
-        )
-
         # Output metrics formatting
         output_formatted: dict[str, object] = {}
         for key in ["obsidian_words", "git_commits", "git_lines_added", "code_time_min"]:
             if key in output and output[key]:
                 label = key.replace("_", " ").title()
                 output_formatted[label] = output[key]
+
+        # Suggestions based on data (rule engine)
+        suggestions = self._generate_suggestions(
+            deep_work_min, context_switches, ping_pong, distraction, total_active_min
+        )
+
+        # AI summary (if available, appends deeper analysis)
+        ai_summary = await self.generate_ai_summary(
+            {
+                "total_active_min": total_active_min,
+                "deep_work_min": deep_work_min,
+                "productivity_ratio": productivity_ratio,
+                "context_switches": context_switches,
+                "ping_pong": ping_pong,
+                "top_apps": summary.get("top_apps", []),
+                "energy_curve": focus.get("energy_curve", {}),
+                "distraction_time_min": distraction.get("distraction_time_min", 0),
+                "output_metrics": output_formatted,
+            }
+        )
 
         # Render template
         report_date = focus.get("date", date.today().isoformat())
@@ -160,6 +186,7 @@ class DailyReporter:
             output_metrics=output_formatted if output_formatted else None,
             distraction_summary=distraction_summary,
             suggestions=suggestions if suggestions else None,
+            ai_summary=ai_summary,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         )
 
@@ -297,6 +324,73 @@ class DailyReporter:
             )
 
         return suggestions
+
+    async def generate_ai_summary(self, data: dict) -> str | None:
+        """Use Anthropic API to generate a deeper AI analysis of the day's data.
+
+        Returns None if AI is not available or if the API call fails.
+        data should contain: total_active_min, deep_work_min, context_switches,
+        ping_pong, top_apps, energy_curve, distraction, output_metrics.
+        """
+        if not self.use_ai:
+            return None
+
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic()
+
+            # 构建数据摘要（只发送结构化统计，不发原始标题/URL — L2 隐私模式）
+            prompt = f"""分析以下个人电脑使用数据，给出 3-5 条具体的效率改进建议。
+要求：用中文回复，简洁直接，每条建议一句话，重点关注"可执行的行动"。
+
+## 今日数据
+- 活跃时长: {data.get('total_active_min', 0):.0f} 分钟
+- 深度工作: {data.get('deep_work_min', 0):.0f} 分钟
+- 生产力比: {data.get('productivity_ratio', 0):.0%}
+- 上下文切换: {data.get('context_switches', 0)} 次
+- 乒乓切换: {data.get('ping_pong', 0)} 次
+
+## Top Apps (按使用时长)
+"""
+            for app in data.get("top_apps", [])[:8]:
+                prompt += f"- {app.get('app_name', '?')}: {app.get('minutes', 0)}min ({app.get('category', 'other')})\n"
+
+            # 能量曲线
+            curve = data.get("energy_curve", {})
+            if curve:
+                prompt += "\n## 能量曲线 (每小时深度工作占比)\n"
+                for h in range(8, 23):
+                    key = str(h).zfill(2)
+                    ratio = curve.get(key, 0) or 0
+                    prompt += f"- {key}:00: {ratio:.0%}\n"
+
+            # 干扰数据
+            dist_min = data.get("distraction_time_min", 0) or 0
+            if dist_min > 0:
+                prompt += f"\n## 干扰\n- 非生产性浏览/娱乐: {dist_min:.0f} 分钟\n"
+
+            # 产出
+            output = data.get("output_metrics", {})
+            if output:
+                prompt += "\n## 产出\n"
+                for k, v in output.items():
+                    if v:
+                        prompt += f"- {k}: {v}\n"
+
+            message = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            return message.content[0].text
+
+        except ImportError:
+            return None
+        except Exception as e:
+            print(f"[Reporter] AI summary error: {e}")
+            return None
 
 
 class DistractionAnalyzer:

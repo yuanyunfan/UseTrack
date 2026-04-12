@@ -50,3 +50,12 @@ logs/
 
 # Backup files from hooks
 claude-progress.txt.bak
+
+# Build artifacts (App bundle)
+build/
+
+# uv lock (generated)
+python/uv.lock
+
+# Duplicate progress files
+python/claude-progress.txt

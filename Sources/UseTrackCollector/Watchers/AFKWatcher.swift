@@ -19,6 +19,9 @@ class AFKWatcher {
     private let idleThreshold: TimeInterval  // seconds before considered idle
     private let pollInterval: TimeInterval
 
+    /// 回调：通知 TrackingEngine 空闲状态变化
+    var onIdleStateChanged: ((Bool) -> Void)?
+
     /// Initialize AFK watcher.
     /// - Parameters:
     ///   - dbManager: Database manager for writing events
@@ -63,6 +66,7 @@ class AFKWatcher {
             do {
                 let _ = try dbManager.insertActivity(event)
                 print("[AFKWatcher] User is now idle (inactive for \(Int(idleSeconds))s)")
+                onIdleStateChanged?(true)
             } catch {
                 print("[AFKWatcher] Error recording idle_start: \(error)")
             }
@@ -88,6 +92,7 @@ class AFKWatcher {
             do {
                 let _ = try dbManager.insertActivity(event)
                 print("[AFKWatcher] User is back (was idle for \(Int(idleDuration))s)")
+                onIdleStateChanged?(false)
             } catch {
                 print("[AFKWatcher] Error recording idle_end: \(error)")
             }
