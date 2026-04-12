@@ -16,10 +16,9 @@ struct HourlyEnergy: Identifiable {
     }
 }
 
-/// Stacked bar data for Charts — uses index to preserve ordering across midnight
+/// Stacked bar data for Charts
 struct EnergySegment: Identifiable {
     let id = UUID()
-    let index: Int        // 0-23 ordering index to keep chronological order
     let hour: String      // Display label like "08:00"
     let category: String  // "深度工作" or "其他活跃"
     let minutes: Double
@@ -30,18 +29,13 @@ struct EnergyBarChart: View {
 
     /// Convert HourlyEnergy into stacked segments, preserving the order from data store
     private var segments: [EnergySegment] {
-        data.enumerated().flatMap { (index, item) -> [EnergySegment] in
+        data.flatMap { item -> [EnergySegment] in
             let hourLabel = "\(String(format: "%02d", item.hour)):00"
             return [
-                EnergySegment(index: index, hour: hourLabel, category: "其他活跃", minutes: item.otherMin),
-                EnergySegment(index: index, hour: hourLabel, category: "深度工作", minutes: item.deepWorkMin),
+                EnergySegment(hour: hourLabel, category: "其他活跃", minutes: item.otherMin),
+                EnergySegment(hour: hourLabel, category: "深度工作", minutes: item.deepWorkMin),
             ]
         }
-    }
-
-    /// X-axis hour labels for display (show every 2nd to avoid crowding)
-    private var hourLabels: [String] {
-        data.map { "\(String(format: "%02d", $0.hour)):00" }
     }
 
     var body: some View {
@@ -50,8 +44,9 @@ struct EnergyBarChart: View {
 
             Chart(segments) { seg in
                 BarMark(
-                    x: .value("时间", seg.index),
-                    y: .value("分钟", seg.minutes)
+                    x: .value("时间", seg.hour),
+                    y: .value("分钟", seg.minutes),
+                    width: .ratio(0.8)
                 )
                 .foregroundStyle(by: .value("类型", seg.category))
             }
@@ -59,14 +54,14 @@ struct EnergyBarChart: View {
                 "深度工作": Color.green,
                 "其他活跃": Color.blue.opacity(0.3),
             ])
-            .chartXScale(domain: -0.5...23.5)
             .chartXAxis {
-                AxisMarks(values: Array(stride(from: 0, to: 24, by: 2))) { value in
+                AxisMarks(values: .automatic) { value in
                     AxisGridLine()
                     AxisValueLabel {
-                        if let idx = value.as(Int.self), idx < hourLabels.count {
-                            Text(hourLabels[idx])
-                                .font(.caption2)
+                        if let label = value.as(String.self) {
+                            // Show only the hour part "HH" to save space
+                            Text(String(label.prefix(2)))
+                                .font(.system(size: 8))
                         }
                     }
                 }
