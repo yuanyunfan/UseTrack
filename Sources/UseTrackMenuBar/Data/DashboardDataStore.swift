@@ -131,11 +131,23 @@ class DashboardDataStore {
         )
     }
 
-    // MARK: - Energy Curve (per hour)
+    // MARK: - Energy Curve (last 24 hours)
 
+    /// Returns energy data for the last 24 hours (from current hour back 23 hours).
+    /// Always returns exactly 24 entries, even for hours with no activity (filled with 0).
     func getEnergyCurve(for date: Date) throws -> [(hour: Int, activeMin: Double, deepWorkMin: Double)] {
         let db = try connect()
-        let range = dayRange(for: date)
+        let cal = Calendar.current
+
+        // Compute the 24-hour window: from (currentHour - 23) to end of currentHour
+        let currentHour = cal.dateComponents([.year, .month, .day, .hour], from: date)
+        guard let endOfWindow = cal.date(from: currentHour)?.addingTimeInterval(3600) else {
+            return []
+        }
+        let startOfWindow = endOfWindow.addingTimeInterval(-24 * 3600)
+
+        let startTs = isoString(for: startOfWindow)
+        let endTs = isoString(for: endOfWindow)
 
         // Fetch raw events with start time and duration
         let query = """
@@ -148,11 +160,10 @@ class DashboardDataStore {
             ORDER BY ts
         """
 
-        // Accumulate per-hour buckets
-        var activeByHour: [Int: Double] = [:]
-        var dwByHour: [Int: Double] = [:]
+        // Accumulate per-hour buckets, keyed by "YYYY-MM-DD HH" to handle day boundaries
+        var activeBySlot: [String: Double] = [:]
+        var dwBySlot: [String: Double] = [:]
 
-        let cal = Calendar.current
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -162,7 +173,11 @@ class DashboardDataStore {
         formatterFrac.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
         formatterFrac.locale = Locale(identifier: "en_US_POSIX")
 
-        for row in try db.prepare(query, [range.start, range.end]) {
+        let slotFormatter = DateFormatter()
+        slotFormatter.dateFormat = "yyyy-MM-dd HH"
+        slotFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        for row in try db.prepare(query, [startTs, endTs]) {
             guard let tsStr = row[0] as? String else { continue }
             let duration = row[1] as? Double ?? 0
             let category = row[2] as? String ?? ""
@@ -176,16 +191,16 @@ class DashboardDataStore {
             var cursor = startDate
 
             while remaining > 0 {
-                let hour = cal.component(.hour, from: cursor)
+                let slot = slotFormatter.string(from: cursor)
                 // Seconds until next hour boundary
                 let minuteOfHour = cal.component(.minute, from: cursor)
                 let secondOfHour = cal.component(.second, from: cursor)
                 let secsUntilNextHour = Double((59 - minuteOfHour) * 60 + (60 - secondOfHour))
                 let chunk = min(remaining, secsUntilNextHour)
 
-                activeByHour[hour, default: 0] += chunk
+                activeBySlot[slot, default: 0] += chunk
                 if isDeepWork {
-                    dwByHour[hour, default: 0] += chunk
+                    dwBySlot[slot, default: 0] += chunk
                 }
 
                 remaining -= chunk
@@ -193,11 +208,15 @@ class DashboardDataStore {
             }
         }
 
-        // Build result, capping at 60 min per hour
+        // Build all 24 hour slots, including those with no activity
         var result: [(hour: Int, activeMin: Double, deepWorkMin: Double)] = []
-        for hour in (activeByHour.keys.sorted()) {
-            let activeSec = activeByHour[hour] ?? 0
-            let dwSec = dwByHour[hour] ?? 0
+        for i in 0..<24 {
+            let slotDate = startOfWindow.addingTimeInterval(Double(i) * 3600)
+            let slot = slotFormatter.string(from: slotDate)
+            let hour = cal.component(.hour, from: slotDate)
+
+            let activeSec = activeBySlot[slot] ?? 0
+            let dwSec = dwBySlot[slot] ?? 0
             let activeMin = min(activeSec / 60.0, 60.0)
             let dwMin = min(dwSec / 60.0, activeMin)
             result.append((hour: hour, activeMin: round(activeMin * 10) / 10, deepWorkMin: round(dwMin * 10) / 10))
