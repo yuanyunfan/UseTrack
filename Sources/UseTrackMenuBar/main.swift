@@ -140,6 +140,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // Menu Bar app 关闭 Dashboard 窗口后不应退出，继续在后台运行
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         collectorProcess?.terminate()
     }
