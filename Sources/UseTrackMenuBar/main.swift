@@ -57,7 +57,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openDashboard() {
         popover.performClose(nil)
-        dashboardWindowController.showWindow(nil)
+        // 延迟到下一个 RunLoop 周期再打开 Dashboard 窗口，
+        // 确保 popover 关闭动画的 CA transaction 已完成，避免动画对象 use-after-free。
+        DispatchQueue.main.async { [weak self] in
+            self?.dashboardWindowController.showWindow(nil)
+        }
     }
 
     @objc func togglePopover() {
@@ -75,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func closePopover() {
+        guard popover.isShown else { return }  // 防止重复关闭（transient popover 可能已自动关闭）
         popover.performClose(nil)
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)

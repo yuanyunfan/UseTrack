@@ -27,9 +27,12 @@ class DashboardWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        // Close old window if it exists but is hidden
-        window?.close()
+        // Close old window if it exists but is hidden.
+        // 先置 nil 解除 delegate，再 close，避免触发 windowWillClose 的延迟回调干扰新窗口。
+        let oldWindow = window
         window = nil
+        oldWindow?.delegate = nil
+        oldWindow?.close()
 
         // Create SwiftUI hosting controller
         let dashboardView = DashboardView(viewModel: viewModel)
@@ -62,8 +65,13 @@ class DashboardWindowController: NSObject, NSWindowDelegate {
         viewModel.refresh()
     }
 
-    // When user closes the window, release it so next open creates fresh
+    // When user closes the window, release it so next open creates fresh.
+    // 延迟释放：windowWillClose 在关闭动画开始时调用，此时 _NSWindowTransformAnimation
+    // 仍在进行中。立即置 nil 会导致动画对象 use-after-free (EXC_BAD_ACCESS)。
+    // 等到下一个 RunLoop 周期，确保所有 CA transaction 和动画都已 flush 完成。
     func windowWillClose(_ notification: Notification) {
-        window = nil
+        DispatchQueue.main.async { [weak self] in
+            self?.window = nil
+        }
     }
 }
