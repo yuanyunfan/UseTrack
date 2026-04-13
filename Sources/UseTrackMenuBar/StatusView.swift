@@ -93,7 +93,7 @@ struct StatusView: View {
             .foregroundColor(.red)
         }
         .padding()
-        .frame(width: 300)
+        .frame(width: 300, alignment: .leading)
     }
 
     func formatMinutes(_ min: Double) -> String {

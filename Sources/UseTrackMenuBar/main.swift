@@ -14,6 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover!
     var statusViewModel = StatusViewModel()
     var updateTimer: Timer?
+    var eventMonitor: Any?
     let dashboardWindowController = DashboardWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,9 +33,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Create popover with SwiftUI view
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 400)
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: StatusView(viewModel: statusViewModel))
+        let hostingController = NSHostingController(rootView: StatusView(viewModel: statusViewModel))
+        hostingController.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hostingController
 
         // Update status every 30 seconds
         updateTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -61,10 +63,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func togglePopover() {
         if let button = statusItem.button {
             if popover.isShown {
-                popover.performClose(nil)
+                closePopover()
             } else {
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+                // Monitor clicks outside the popover to dismiss it
+                eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                    self?.closePopover()
+                }
             }
+        }
+    }
+
+    func closePopover() {
+        popover.performClose(nil)
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
         }
     }
 
