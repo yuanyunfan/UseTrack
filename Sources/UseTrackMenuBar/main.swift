@@ -21,6 +21,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start Collector subprocess (if not already running)
         startCollectorIfNeeded()
 
+        // 禁用默认的 Cmd+Q 退出行为：Dashboard 窗口激活后 macOS 会显示应用菜单，
+        // 用户按 Cmd+Q 会触发 terminate，这里改为只关闭 Dashboard 窗口。
+        disableCmdQ()
+
         // Create status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -147,6 +151,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         collectorProcess?.terminate()
+    }
+
+    /// 将主菜单的 Quit 快捷键 (Cmd+Q) 改为关闭当前窗口，防止误退出 Menu Bar app。
+    private func disableCmdQ() {
+        // 遍历主菜单找到 "Quit" 菜单项并替换其 action
+        DispatchQueue.main.async {
+            if let mainMenu = NSApp.mainMenu {
+                for item in mainMenu.items {
+                    if let submenu = item.submenu {
+                        for menuItem in submenu.items {
+                            if menuItem.action == #selector(NSApplication.terminate(_:)) {
+                                menuItem.action = #selector(self.closeDashboardInsteadOfQuit)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @objc func closeDashboardInsteadOfQuit(_ sender: Any?) {
+        dashboardWindowController.closeWindow()
     }
 }
 

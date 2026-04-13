@@ -48,6 +48,7 @@ class DashboardWindowController: NSObject, NSWindowDelegate {
         w.title = "UseTrack Dashboard"
         w.contentViewController = hostingController
         w.minSize = NSSize(width: 900, height: 600)
+        w.isReleasedWhenClosed = false  // 防止关闭窗口时 window 被自动释放导致 app 退出
         w.delegate = self
 
         // Force the content size (overrides any cached frame)
@@ -73,5 +74,10 @@ class DashboardWindowController: NSObject, NSWindowDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.window = nil
         }
+    }
+
+    /// 关闭 Dashboard 窗口（由 Cmd+Q 替代动作调用）
+    func closeWindow() {
+        window?.close()
     }
 }
