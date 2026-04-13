@@ -9,20 +9,8 @@ struct StatusView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
-            HStack {
-                Text("UseTrack")
-                    .font(.headline)
-                Spacer()
-                // Focus mode toggle
-                Toggle(isOn: Binding(
-                    get: { viewModel.isFocusMode },
-                    set: { _ in viewModel.toggleFocusMode() }
-                )) {
-                    Image(systemName: viewModel.isFocusMode ? "moon.fill" : "moon")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-            }
+            Text("UseTrack")
+                .font(.headline)
 
             Divider()
 

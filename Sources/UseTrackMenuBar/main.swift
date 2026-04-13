@@ -24,7 +24,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "clock.badge.checkmark", accessibilityDescription: "UseTrack")
+            button.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "UseTrack")
+            button.image?.isTemplate = true
             button.action = #selector(togglePopover)
             button.target = self
         }
