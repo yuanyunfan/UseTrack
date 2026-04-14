@@ -25,6 +25,9 @@ class InputWatcher {
     }
 
     func start() {
+        // Guard against double-start: clean up existing monitors and timer first
+        stop()
+
         // Reset counters to avoid carrying over stale counts from a previous period
         serialQueue.sync {
             keystrokeCount = 0

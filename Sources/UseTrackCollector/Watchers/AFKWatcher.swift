@@ -34,6 +34,9 @@ class AFKWatcher {
     }
 
     func start() {
+        // Guard against double-start: invalidate any existing timer first
+        stop()
+
         timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             self?.checkIdleState()
         }

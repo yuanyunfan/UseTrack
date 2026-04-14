@@ -63,6 +63,8 @@ class WindowWatcher {
     }
 
     func start() {
+        // Guard against double-start: clean up any existing timers first
+        stop()
         scheduleTimer()
         // Fire immediately on start
         checkWindowTitle()

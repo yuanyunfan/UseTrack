@@ -33,6 +33,9 @@ class MouseTracker {
     private let retentionInterval: TimeInterval = 60  // Keep events for 60 seconds
 
     func start() {
+        // Guard against double-start: remove any existing monitors first
+        stop()
+
         // Monitor mouse movement (global, across all apps)
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] event in
             self?.handleMouseMove(event)
