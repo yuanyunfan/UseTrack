@@ -160,8 +160,10 @@ class UseTrackDB:
         params: list = [start, end]
 
         if app_filter:
-            sql += " AND app_name LIKE ?"
-            params.append(f"%{app_filter}%")
+            # Escape LIKE special characters to prevent pattern injection
+            escaped = app_filter.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            sql += " AND app_name LIKE ? ESCAPE '\\'"
+            params.append(f"%{escaped}%")
         if category_filter:
             sql += " AND category = ?"
             params.append(category_filter)
