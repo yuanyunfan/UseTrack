@@ -63,19 +63,26 @@ class GitWatcher {
         df.timeZone = .current
         let today = df.string(from: Date())
         let repoName = URL(fileURLWithPath: path).lastPathComponent
+        let detailsJSON: String
+        if let jsonData = try? JSONSerialization.data(withJSONObject: ["repo": repoName]),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            detailsJSON = jsonString
+        } else {
+            detailsJSON = "{}"
+        }
 
         do {
             try dbManager.addOutputMetric(
                 date: today, metricType: "git_commits",
-                delta: Double(count), details: "{\"repo\": \"\(repoName)\"}"
+                delta: Double(count), details: detailsJSON
             )
             try dbManager.addOutputMetric(
                 date: today, metricType: "git_lines_added",
-                delta: Double(added), details: "{\"repo\": \"\(repoName)\"}"
+                delta: Double(added), details: detailsJSON
             )
             try dbManager.addOutputMetric(
                 date: today, metricType: "git_lines_removed",
-                delta: Double(removed), details: "{\"repo\": \"\(repoName)\"}"
+                delta: Double(removed), details: detailsJSON
             )
             print("[GitWatcher] \(repoName): \(count) commits, +\(added)/-\(removed) lines")
         } catch {
