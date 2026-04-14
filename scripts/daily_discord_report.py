@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import os
 import sys
 import urllib.request
 from datetime import date, datetime
@@ -13,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent / "python" / "src"))
 
 from usetrack.db import UseTrackDB
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1492180437093847070/vxocOY_bO9FaZugwOzyj6bNHVAfkOVUHZMhWA-FwuFK1TLhs_Tfy464oZcCy3RjX6ijU"
+WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 DB_PATH = Path.home() / ".usetrack" / "usetrack.db"
 
 CATEGORY_EMOJI = {
@@ -227,6 +228,11 @@ def send_to_discord(payload: dict):
 
 
 async def main():
+    if not WEBHOOK_URL:
+        print("❌ 环境变量 DISCORD_WEBHOOK_URL 未设置")
+        print("   请设置: export DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/...'")
+        sys.exit(1)
+
     if not DB_PATH.exists():
         print(f"❌ 数据库不存在: {DB_PATH}")
         print("   请先启动 UseTrack Collector")
