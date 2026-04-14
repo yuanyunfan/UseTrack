@@ -25,6 +25,13 @@ class InputWatcher {
     }
 
     func start() {
+        // Reset counters to avoid carrying over stale counts from a previous period
+        serialQueue.sync {
+            keystrokeCount = 0
+            mouseClickCount = 0
+            scrollCount = 0
+        }
+
         // Monitor keystrokes (count only, not content)
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] _ in
             self?.serialQueue.async { self?.keystrokeCount += 1 }
@@ -54,6 +61,11 @@ class InputWatcher {
 
     func stop() {
         timer?.invalidate()
+        timer = nil
+
+        // Flush any pending counts before removing monitors
+        recordAndReset()
+
         for monitor in eventMonitors { NSEvent.removeMonitor(monitor) }
         eventMonitors.removeAll()
     }
