@@ -268,6 +268,10 @@ class UseTrackDB:
         """Full-text search across window titles using FTS5."""
         if not keyword or not keyword.strip():
             return []
+        # Sanitize: wrap keyword in double quotes so FTS5 treats it as a literal
+        # phrase, preventing use of operators (AND, OR, NOT, NEAR, *) to probe
+        # database content. Escape any embedded double quotes per FTS5 rules.
+        sanitized = '"' + keyword.strip().replace('"', '""') + '"'
         try:
             rows = await self._fetchall(
                 """
@@ -279,7 +283,7 @@ class UseTrackDB:
                 ORDER BY a.ts DESC
                 LIMIT ?
                 """,
-                (keyword, limit),
+                (sanitized, limit),
             )
             return [dict(r) for r in rows]
         except Exception:
