@@ -76,12 +76,19 @@ class ObsidianWatcher {
         df.timeZone = .current
         let today = df.string(from: Date())
         let details = changedFiles.prefix(5).joined(separator: ", ")
+        let detailsJSON: String
+        if let jsonData = try? JSONSerialization.data(withJSONObject: ["files": details]),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            detailsJSON = jsonString
+        } else {
+            detailsJSON = "{\"files\": \"\"}"
+        }
 
         do {
             try dbManager.insertOutputMetric(
                 date: today, metricType: "obsidian_words",
                 value: Double(totalNewWords),
-                details: "{\"files\": \"\(details)\"}"
+                details: detailsJSON
             )
             print("[ObsidianWatcher] +\(totalNewWords) words in \(changedFiles.count) files")
         } catch {
