@@ -452,25 +452,27 @@ class DatabaseManager {
     /// 获取 App 的分类（使用内存缓存）
     /// 获取 App 的分类（缓存 + DB fallback，确保 Dashboard 修改后立即生效）
     func getCategoryForApp(appName: String) -> String? {
-        // Check cache first
-        if let cached = appRulesCache[appName] {
-            return cached
-        }
-        // Not in cache — query DB (may have been added by Dashboard)
-        do {
-            for row in try db.prepare(
-                "SELECT category FROM app_rules WHERE pattern = ? AND is_regex = 0 LIMIT 1",
-                [appName]
-            ) {
-                if let category = row[0] as? String {
-                    appRulesCache[appName] = category  // Update cache
-                    return category
-                }
+        return dbQueue.sync {
+            // Check cache first
+            if let cached = appRulesCache[appName] {
+                return cached
             }
-        } catch {
-            // Ignore query errors
+            // Not in cache — query DB (may have been added by Dashboard)
+            do {
+                for row in try db.prepare(
+                    "SELECT category FROM app_rules WHERE pattern = ? AND is_regex = 0 LIMIT 1",
+                    [appName]
+                ) {
+                    if let category = row[0] as? String {
+                        appRulesCache[appName] = category  // Update cache
+                        return category
+                    }
+                }
+            } catch {
+                // Ignore query errors
+            }
+            return nil
         }
-        return nil
     }
 
     // MARK: - Data Retention
