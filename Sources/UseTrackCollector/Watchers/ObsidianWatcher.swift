@@ -85,9 +85,9 @@ class ObsidianWatcher {
         }
 
         do {
-            try dbManager.insertOutputMetric(
+            try dbManager.addOutputMetric(
                 date: today, metricType: "obsidian_words",
-                value: Double(totalNewWords),
+                delta: Double(totalNewWords),
                 details: detailsJSON
             )
             print("[ObsidianWatcher] +\(totalNewWords) words in \(changedFiles.count) files")
