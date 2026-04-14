@@ -343,16 +343,20 @@ class DatabaseManager {
         }
     }
 
-    /// 更新最近一条活动事件的持续时间（当下一个事件到达时回填）
-    func updateLastActivityDuration(durationSeconds: Double) throws {
+    /// 更新指定活动事件的持续时间（当下一个事件到达时回填）
+    /// - Parameters:
+    ///   - rowId: 要更新的活动事件的行 ID
+    ///   - durationSeconds: 持续时间（秒）
+    func updateActivityDuration(rowId: Int64, durationSeconds: Double) throws {
         try dbQueue.sync {
             try db.run(
                 """
                 UPDATE activity_stream
                 SET duration_s = ?
-                WHERE id = (SELECT MAX(id) FROM activity_stream)
+                WHERE id = ?
                 """,
-                durationSeconds
+                durationSeconds,
+                rowId
             )
         }
     }

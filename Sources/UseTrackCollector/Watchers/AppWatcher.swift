@@ -18,6 +18,8 @@ class AppWatcher {
     private let dbManager: DatabaseManager
     private var lastSwitchTime: Date?
     private var lastAppName: String?
+    /// Row ID of the last app_switch event inserted, used for precise duration backfill.
+    private var lastActivityRowId: Int64?
 
     /// System processes that should never be recorded as user activity.
     /// These are macOS internal processes that become "frontmost" during
@@ -73,7 +75,7 @@ class AppWatcher {
                     meta: ["bundle_id": bundleId],
                     category: category
                 )
-                try? dbManager.insertActivity(event)
+                lastActivityRowId = try? dbManager.insertActivity(event)
             }
         }
 
@@ -118,10 +120,10 @@ class AppWatcher {
     }
 
     private func recordSwitch(appName: String, bundleId: String, windowTitle: String?, at time: Date) {
-        // 1. Backfill duration of previous event
-        if let lastTime = lastSwitchTime {
+        // 1. Backfill duration of previous event using its specific row ID
+        if let lastTime = lastSwitchTime, let rowId = lastActivityRowId {
             let duration = time.timeIntervalSince(lastTime)
-            try? dbManager.updateLastActivityDuration(durationSeconds: duration)
+            try? dbManager.updateActivityDuration(rowId: rowId, durationSeconds: duration)
         }
 
         // 2. Get category from app_rules
@@ -139,11 +141,12 @@ class AppWatcher {
             category: category
         )
 
-        // 4. Write to database
+        // 4. Write to database and store row ID for future duration backfill
         do {
-            let _ = try dbManager.insertActivity(event)
+            lastActivityRowId = try dbManager.insertActivity(event)
         } catch {
             print("[AppWatcher] Error inserting activity: \(error)")
+            lastActivityRowId = nil
         }
 
         // 5. Update state
