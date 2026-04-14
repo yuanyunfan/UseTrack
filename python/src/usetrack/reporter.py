@@ -176,7 +176,7 @@ class DailyReporter:
             context_switches=context_switches,
             avg_switches=avg_switches,
             trend_switches=self._trend_arrow(
-                avg_switches, context_switches, lower_is_better=True
+                context_switches, avg_switches, lower_is_better=True
             ),
             ping_pong=ping_pong,
             avg_ping_pong=0,
