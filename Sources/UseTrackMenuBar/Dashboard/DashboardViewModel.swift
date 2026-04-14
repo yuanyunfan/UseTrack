@@ -100,13 +100,17 @@ class DashboardViewModel: ObservableObject {
             guard let self = self else { return }
             do {
                 let events = try self.store.getTimelineEvents(for: date)
-                let jsonArray = events.map { e -> String in
-                    let app = e.app.replacingOccurrences(of: "\"", with: "\\\"")
-                    return """
-                    {"app":"\(app)","start":"\(e.start)","end":"\(e.end)","category":"\(e.category)","duration_min":\(e.durationMin)}
-                    """
+                let dictArray: [[String: Any]] = events.map { e in
+                    [
+                        "app": e.app,
+                        "start": e.start,
+                        "end": e.end,
+                        "category": e.category,
+                        "duration_min": e.durationMin
+                    ]
                 }
-                let json = "[\(jsonArray.joined(separator: ","))]"
+                let jsonData = try JSONSerialization.data(withJSONObject: dictArray, options: [])
+                let json = String(data: jsonData, encoding: .utf8) ?? "[]"
 
                 DispatchQueue.main.async {
                     self.timelineJSON = json
