@@ -70,12 +70,16 @@ class ObsidianWatcher {
 
         guard totalNewWords > 0 else { return }
 
-        let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = .current
+        let today = df.string(from: Date())
         let details = changedFiles.prefix(5).joined(separator: ", ")
 
         do {
             try dbManager.insertOutputMetric(
-                date: String(today), metricType: "obsidian_words",
+                date: today, metricType: "obsidian_words",
                 value: Double(totalNewWords),
                 details: "{\"files\": \"\(details)\"}"
             )
