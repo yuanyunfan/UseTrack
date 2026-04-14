@@ -54,14 +54,14 @@ class DashboardDataStore {
 
     // MARK: - Date Helpers
 
-    /// Returns [startOfDay, startOfNextDay) as ISO 8601 strings
+    /// Returns [startOfDay, startOfNextDay) as local datetime strings matching DB format
     private func dayRange(for date: Date) -> (start: String, end: String) {
         let cal = Calendar.current
         let startOfDay = cal.startOfDay(for: date)
         let startOfNextDay = cal.date(byAdding: .day, value: 1, to: startOfDay)!
-        let fmt = ISO8601DateFormatter()
-        fmt.formatOptions = [.withInternetDateTime]
-        fmt.timeZone = .current
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        fmt.locale = Locale(identifier: "en_US_POSIX")
         return (fmt.string(from: startOfDay), fmt.string(from: startOfNextDay))
     }
 
@@ -72,11 +72,11 @@ class DashboardDataStore {
         return fmt.string(from: date)
     }
 
-    /// Returns an ISO 8601 datetime string for a given date
+    /// Returns a local datetime string for a given date, matching DB timestamp format
     private func isoString(for date: Date) -> String {
-        let fmt = ISO8601DateFormatter()
-        fmt.formatOptions = [.withInternetDateTime]
-        fmt.timeZone = .current
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        fmt.locale = Locale(identifier: "en_US_POSIX")
         return fmt.string(from: date)
     }
 
