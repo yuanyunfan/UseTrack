@@ -135,12 +135,21 @@ class BrowserURLWatcher {
 
     /// 通过 AppleScript 获取浏览器当前 Tab 的 URL 和标题
     private func getActiveTabInfo(appName: String) -> TabInfo? {
+        // Security: validate appName against known-safe browser names to prevent
+        // AppleScript injection via crafted application names (Issue #3).
+        guard Self.supportedBrowsers.keys.contains(appName) else {
+            return nil
+        }
+
+        let sanitizedAppName = appName.replacingOccurrences(of: "\\", with: "\\\\")
+                                      .replacingOccurrences(of: "\"", with: "\\\"")
+
         let script: String
 
         if Self.chromiumBrowsers.contains(appName) {
             // Chromium 系浏览器共享 JavaScript 接口
             script = """
-            tell application "\(appName)"
+            tell application "\(sanitizedAppName)"
                 if (count of windows) > 0 then
                     set tabURL to URL of active tab of front window
                     set tabTitle to title of active tab of front window
