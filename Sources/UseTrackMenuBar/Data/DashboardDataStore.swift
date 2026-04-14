@@ -192,10 +192,9 @@ class DashboardDataStore {
 
             while remaining > 0 {
                 let slot = slotFormatter.string(from: cursor)
-                // Seconds until next hour boundary
-                let minuteOfHour = cal.component(.minute, from: cursor)
-                let secondOfHour = cal.component(.second, from: cursor)
-                let secsUntilNextHour = Double((59 - minuteOfHour) * 60 + (60 - secondOfHour))
+                // Seconds until next hour boundary (precise, accounts for sub-seconds)
+                let nextHour = cal.nextDate(after: cursor, matching: DateComponents(minute: 0, second: 0), matchingPolicy: .strict, direction: .forward) ?? cursor.addingTimeInterval(3600)
+                let secsUntilNextHour = nextHour.timeIntervalSince(cursor)
                 let chunk = min(remaining, secsUntilNextHour)
 
                 activeBySlot[slot, default: 0] += chunk
