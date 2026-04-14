@@ -482,13 +482,15 @@ class DatabaseManager {
     ///   - activityDays: activity_stream 保留天数（默认 90 天）
     ///   - snapshotDays: window_snapshot 保留天数（默认 30 天）
     func cleanupOldData(activityDays: Int = 90, snapshotDays: Int = 30) throws {
-        try db.run(
-            "DELETE FROM activity_stream WHERE ts < datetime('now', ?)",
-            "-\(activityDays) days"
-        )
-        try db.run(
-            "DELETE FROM window_snapshot WHERE ts < datetime('now', ?)",
-            "-\(snapshotDays) days"
-        )
+        try dbQueue.sync {
+            try db.run(
+                "DELETE FROM activity_stream WHERE ts < datetime('now', ?)",
+                "-\(activityDays) days"
+            )
+            try db.run(
+                "DELETE FROM window_snapshot WHERE ts < datetime('now', ?)",
+                "-\(snapshotDays) days"
+            )
+        }
     }
 }
