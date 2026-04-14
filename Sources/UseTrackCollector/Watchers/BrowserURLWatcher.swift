@@ -34,7 +34,11 @@ class BrowserURLWatcher {
         "Google Chrome", "Microsoft Edge", "Brave Browser", "Vivaldi", "Arc",
     ]
 
+    /// Serial queue to protect lastURL / lastAppName from concurrent access
+    private let stateQueue = DispatchQueue(label: "com.usetrack.BrowserURLWatcher.state")
+
     /// 上次记录的 URL（防止同一 URL 重复写入）
+    /// Access must be synchronized via `stateQueue`.
     private var lastURL: String?
     private var lastAppName: String?
 
@@ -67,10 +71,16 @@ class BrowserURLWatcher {
             let url = urlInfo.url
             let tabTitle = urlInfo.title
 
-            // 去重：同一浏览器 + 同一 URL 不重复记录
-            guard url != self.lastURL || appName != self.lastAppName else { return }
-            self.lastURL = url
-            self.lastAppName = appName
+            // 去重：同一浏览器 + 同一 URL 不重复记录（thread-safe）
+            let isDuplicate: Bool = self.stateQueue.sync {
+                if url == self.lastURL && appName == self.lastAppName {
+                    return true
+                }
+                self.lastURL = url
+                self.lastAppName = appName
+                return false
+            }
+            guard !isDuplicate else { return }
 
             // 跳过空 URL 和内部页面
             guard !url.isEmpty,
@@ -109,8 +119,10 @@ class BrowserURLWatcher {
     /// 当 App 切走或窗口标题变化为非浏览器时，重置去重状态
     func resetIfNeeded(appName: String) {
         if !Self.isSupportedBrowser(appName) {
-            lastURL = nil
-            lastAppName = nil
+            stateQueue.sync {
+                lastURL = nil
+                lastAppName = nil
+            }
         }
     }
 
