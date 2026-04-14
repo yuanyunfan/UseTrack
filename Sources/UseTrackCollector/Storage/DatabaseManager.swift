@@ -29,15 +29,17 @@ class DatabaseManager {
 
     // MARK: - ISO 8601 日期格式化
 
-    private static let iso8601Formatter: DateFormatter = {
+    /// Per-instance formatter, always accessed within `dbQueue` — thread-safe.
+    private let iso8601Formatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()
 
+    /// Must be called within `dbQueue` to guarantee thread safety.
     private func formatDate(_ date: Date) -> String {
-        Self.iso8601Formatter.string(from: date)
+        iso8601Formatter.string(from: date)
     }
 
     // MARK: - Initialization
