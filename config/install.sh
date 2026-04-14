@@ -43,7 +43,7 @@ echo -e "  ${GREEN}✓ Binary installed${NC}"
 # 3. Install plist
 echo "  Installing LaunchAgent..."
 mkdir -p "$HOME/Library/LaunchAgents"
-cp "$PLIST_SRC" "$PLIST_DST"
+sed -e "s|__HOME__|$HOME|g" -e "s|__BINARY_DST__|$BINARY_DST|g" "$PLIST_SRC" > "$PLIST_DST"
 echo -e "  ${GREEN}✓ LaunchAgent plist installed${NC}"
 
 # 4. Load and start
