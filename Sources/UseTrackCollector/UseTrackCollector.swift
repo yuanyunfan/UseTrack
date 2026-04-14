@@ -141,6 +141,13 @@ struct UseTrackCollector: ParsableCommand {
         let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         sigintSource.setEventHandler {
             print("\nUseTrack Collector interrupted (SIGINT)...")
+            for obj in keepAlive {
+                if let e = obj as? TrackingEngine { e.stop() }
+                if let w = obj as? GitWatcher { w.stop() }
+                if let w = obj as? ObsidianWatcher { w.stop() }
+            }
+            for t in keepAliveTimers { t.invalidate() }
+            print("Cleanup complete. Goodbye.")
             Darwin.exit(0)
         }
         sigintSource.resume()
