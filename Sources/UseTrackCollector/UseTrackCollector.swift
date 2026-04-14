@@ -117,8 +117,16 @@ struct UseTrackCollector: ParsableCommand {
         keepAliveTimers = [snapshotTimer]
 
         // --- Graceful shutdown on SIGTERM/SIGINT ---
-        signal(SIGTERM) { sig in
-            print("\nUseTrack Collector shutting down (signal \(sig))...")
+        // Use DispatchSource signal sources instead of raw signal() to avoid
+        // undefined behavior from accessing Swift objects in an async-signal-unsafe context.
+
+        // Ignore default signal handling so DispatchSource can intercept them
+        signal(SIGTERM, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+
+        let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        sigtermSource.setEventHandler {
+            print("\nUseTrack Collector shutting down (SIGTERM)...")
             for obj in keepAlive {
                 if let e = obj as? TrackingEngine { e.stop() }
                 if let w = obj as? GitWatcher { w.stop() }
@@ -128,10 +136,18 @@ struct UseTrackCollector: ParsableCommand {
             print("Cleanup complete. Goodbye.")
             Darwin.exit(0)
         }
-        signal(SIGINT) { sig in
-            print("\nUseTrack Collector interrupted (signal \(sig))...")
+        sigtermSource.resume()
+
+        let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        sigintSource.setEventHandler {
+            print("\nUseTrack Collector interrupted (SIGINT)...")
             Darwin.exit(0)
         }
+        sigintSource.resume()
+
+        // Keep signal sources alive for the process lifetime
+        keepAlive.append(sigtermSource as AnyObject)
+        keepAlive.append(sigintSource as AnyObject)
 
         // Keep the process alive
         RunLoop.current.run()
