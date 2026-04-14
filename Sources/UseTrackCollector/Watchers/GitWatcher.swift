@@ -57,20 +57,24 @@ class GitWatcher {
         let (added, removed) = parseDiffStat(diffStat)
 
         // Record metrics
-        let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = .current
+        let today = df.string(from: Date())
         let repoName = URL(fileURLWithPath: path).lastPathComponent
 
         do {
             try dbManager.addOutputMetric(
-                date: String(today), metricType: "git_commits",
+                date: today, metricType: "git_commits",
                 delta: Double(count), details: "{\"repo\": \"\(repoName)\"}"
             )
             try dbManager.addOutputMetric(
-                date: String(today), metricType: "git_lines_added",
+                date: today, metricType: "git_lines_added",
                 delta: Double(added), details: "{\"repo\": \"\(repoName)\"}"
             )
             try dbManager.addOutputMetric(
-                date: String(today), metricType: "git_lines_removed",
+                date: today, metricType: "git_lines_removed",
                 delta: Double(removed), details: "{\"repo\": \"\(repoName)\"}"
             )
             print("[GitWatcher] \(repoName): \(count) commits, +\(added)/-\(removed) lines")
