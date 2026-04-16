@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.usetrack.export</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/yuanyunfan/.local/bin/uv</string>
+        <string>run</string>
+        <string>--project</string>
+        <string>/Users/yuanyunfan/Code/personal/UseTrack/python</string>
+        <string>usetrack-export</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>1800</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/usetrack-export.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/usetrack-export.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

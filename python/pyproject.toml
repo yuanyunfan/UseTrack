@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 usetrack-mcp = "usetrack.mcp_server:main"
 usetrack-report = "usetrack.reporter:main"
+usetrack-export = "usetrack.exporter:main"
 
 [build-system]
 requires = ["hatchling"]

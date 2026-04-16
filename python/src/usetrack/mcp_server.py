@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastmcp import FastMCP
 
 from usetrack.db import DEFAULT_DB_PATH, UseTrackDB
+from usetrack.sync import MergedDB, load_sync_config
 
 # Global DB instance, initialized on server startup
 _db: UseTrackDB | None = None
@@ -12,9 +13,21 @@ _db: UseTrackDB | None = None
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
-    """Initialize DB connection on startup, close on shutdown."""
+    """Initialize DB connection on startup, close on shutdown.
+
+    If sync.toml is configured and enabled, uses MergedDB to combine
+    local data with remote machine data from the sync directory.
+    """
     global _db
-    _db = UseTrackDB(db_path=DEFAULT_DB_PATH)
+    sync_config = load_sync_config()
+    if sync_config:
+        _db = MergedDB(
+            db_path=DEFAULT_DB_PATH,
+            sync_dir=sync_config["sync_dir"],
+            machine_id=sync_config["machine_id"],
+        )
+    else:
+        _db = UseTrackDB(db_path=DEFAULT_DB_PATH)
     await _db.connect()
     yield
     await _db.close()
