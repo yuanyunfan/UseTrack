@@ -156,7 +156,7 @@ class UseTrackDB:
         sql = """
             SELECT id, ts, activity, app_name, window_title, duration_s, meta, category
             FROM activity_stream
-            WHERE ts BETWEEN ? AND ?
+            WHERE ts >= ? AND ts < ?
         """
         params: list = [start, end]
 
