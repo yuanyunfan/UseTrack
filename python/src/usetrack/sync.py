@@ -147,7 +147,11 @@ def export_today(
                 )
 
             dst.commit()
-        finally:
+        except Exception:
+            dst.close()
+            tmp_path.unlink(missing_ok=True)
+            raise
+        else:
             dst.close()
     finally:
         src.close()
