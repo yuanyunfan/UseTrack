@@ -35,7 +35,7 @@ body {
         highColor: '#34C759'
     };
 
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const daysEN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const hours = [];
     for (var i = 0; i < 24; i++) {
         hours.push(i.toString().padStart(2, '0') + ':00');
@@ -58,12 +58,30 @@ body {
 
         var rawData = input.data;
         var maxVal = input.max || 1;
+        // todayDow: 0=Mon...6=Sun, default to current day
+        var todayDow = (input.todayDow != null) ? input.todayDow : (new Date().getDay() + 6) % 7;
+        // dates: optional array of date strings indexed by dayOfWeek (0=Mon...6=Sun)
+        var dates = input.dates || {};
 
-        // Data format: [dayOfWeek, hour, count]
-        // ECharts heatmap expects [x, y, value] → [hour, dayOfWeek, count]
+        // Build y-axis labels: today first (top), then backwards
+        // Order: today, yesterday, ..., 7 days ago
+        var yLabels = [];
+        var dowOrder = []; // maps y-index → original dayOfWeek
+        for (var i = 0; i < 7; i++) {
+            var dow = ((todayDow - i) % 7 + 7) % 7;
+            dowOrder.push(dow);
+            var label = daysEN[dow];
+            yLabels.push(label);
+        }
+
+        // Remap data: original [dayOfWeek, hour, count] → [hour, newYIndex, count]
+        var dowToY = {};
+        dowOrder.forEach(function(dow, idx) { dowToY[dow] = idx; });
+
         var heatData = rawData.map(function(d) {
-            return [d[1], d[0], d[2] || 0];
-        });
+            var newY = dowToY[d[0]];
+            return (newY != null) ? [d[1], newY, d[2] || 0] : null;
+        }).filter(function(d) { return d !== null; });
 
         var option = {
             backgroundColor: 'transparent',
@@ -73,10 +91,10 @@ body {
                 borderColor: theme.tooltipBorder,
                 textStyle: { color: theme.text, fontSize: 12 },
                 formatter: function(params) {
-                    var dayIdx = params.value[1];
+                    var yIdx = params.value[1];
                     var hour = params.value[0];
                     var count = params.value[2];
-                    return '<b>' + days[dayIdx] + ' ' + hour.toString().padStart(2, '0') + ':00</b><br/>' +
+                    return '<b>' + yLabels[yIdx] + ' ' + hour.toString().padStart(2, '0') + ':00</b><br/>' +
                            count + ' events';
                 }
             },
@@ -102,7 +120,7 @@ body {
             },
             yAxis: {
                 type: 'category',
-                data: days,
+                data: yLabels,
                 splitArea: { show: false },
                 axisLabel: {
                     color: theme.text,

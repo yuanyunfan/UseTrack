@@ -49,6 +49,7 @@ class TrackingEngine {
     private let inputWatcher: InputWatcher
     private let attentionScorer: AttentionScorer
     private let mouseTracker: MouseTracker
+    private let displayWatcher: DisplayWatcher
 
     // 系统事件 observer tokens
     private var observers: [NSObjectProtocol] = []
@@ -62,7 +63,8 @@ class TrackingEngine {
         afkWatcher: AFKWatcher,
         inputWatcher: InputWatcher,
         attentionScorer: AttentionScorer,
-        mouseTracker: MouseTracker
+        mouseTracker: MouseTracker,
+        displayWatcher: DisplayWatcher
     ) {
         self.appWatcher = appWatcher
         self.windowWatcher = windowWatcher
@@ -70,6 +72,7 @@ class TrackingEngine {
         self.inputWatcher = inputWatcher
         self.attentionScorer = attentionScorer
         self.mouseTracker = mouseTracker
+        self.displayWatcher = displayWatcher
     }
 
     // MARK: - Public API
@@ -121,6 +124,7 @@ class TrackingEngine {
             afkWatcher.start()
             inputWatcher.start()
             mouseTracker.start()
+            displayWatcher.start()
 
         // ---- 活跃 ↔ 空闲 ----
         case (.active, .idle):
@@ -168,6 +172,7 @@ class TrackingEngine {
             afkWatcher.stop()
             inputWatcher.stop()
             mouseTracker.stop()
+            displayWatcher.stop()
 
         default:
             print("[TrackingEngine] Unexpected transition: \(oldState) → \(newState)")

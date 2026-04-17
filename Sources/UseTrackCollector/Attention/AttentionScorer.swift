@@ -32,6 +32,7 @@ class AttentionScorer {
     private let screenDetector: ScreenDetector
     private let mouseTracker: MouseTracker
     private let dbManager: DatabaseManager
+    private weak var displayWatcher: DisplayWatcher?
 
     /// Per-window last interaction timestamps (app name -> last interaction date)
     private var lastInteraction: [String: Date] = [:]
@@ -63,10 +64,25 @@ class AttentionScorer {
         self.dbManager = dbManager
     }
 
+    /// Set display watcher reference for display-state-aware scoring.
+    /// Called after DisplayWatcher is created to avoid circular init dependency.
+    func setDisplayWatcher(_ watcher: DisplayWatcher) {
+        self.displayWatcher = watcher
+    }
+
     // MARK: - Core Scoring
 
     /// Score all visible windows and return their attention states.
     func scoreAllWindows() -> [ScoredWindow] {
+        // If display is asleep, all windows are stale — no one is looking
+        if displayWatcher?.isDisplayAsleep == true {
+            let visibleWindows = screenDetector.getVisibleWindows()
+            return visibleWindows.compactMap { window -> ScoredWindow? in
+                if dbManager.isSensitiveApp(appName: window.appName) { return nil }
+                return ScoredWindow(window: window, score: 0, attention: .stale)
+            }
+        }
+
         let visibleWindows = screenDetector.getVisibleWindows()
         let focusedWindow = screenDetector.getFocusedWindow()
         let now = Date()

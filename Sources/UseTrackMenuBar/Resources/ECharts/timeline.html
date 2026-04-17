@@ -95,7 +95,24 @@ body {
 
         // Base timestamp (start of day)
         const base = dayBase(data[0].start);
-        const dayEnd = base + 24 * 3600 * 1000;
+
+        // Dynamic x-axis range: pad 30min before first event, 30min after last
+        var minTs = Infinity, maxTs = -Infinity;
+        data.forEach(function(d) {
+            var s = new Date(d.start).getTime();
+            var e = new Date(d.end).getTime();
+            if (s < minTs) minTs = s;
+            if (e > maxTs) maxTs = e;
+        });
+        // Floor to previous hour, ceil to next hour, then pad 30min
+        var pad = 30 * 60 * 1000;
+        var hourMs = 3600 * 1000;
+        var axisMin = Math.floor((minTs - pad) / hourMs) * hourMs;
+        var axisMax = Math.ceil((maxTs + pad) / hourMs) * hourMs;
+        // Clamp to same day [00:00, 24:00]
+        var dayEnd = base + 24 * 3600 * 1000;
+        axisMin = Math.max(axisMin, base);
+        axisMax = Math.min(axisMax, dayEnd);
 
         // Build series data: one rect per event
         var seriesData = data.map(function(d) {
@@ -129,8 +146,8 @@ body {
             },
             xAxis: {
                 type: 'time',
-                min: base,
-                max: dayEnd,
+                min: axisMin,
+                max: axisMax,
                 axisLabel: {
                     color: theme.subText,
                     formatter: function(val) {

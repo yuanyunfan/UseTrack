@@ -39,6 +39,16 @@ class DashboardViewModel: ObservableObject {
     @Published var appRules: [AppRule] = []
     @Published var dbSizeBytes: Int64 = 0
 
+    // MARK: - AI Sessions Page
+
+    private let claudeStore = ClaudeSessionStore()
+    @Published var aiKPI = AISessionKPI(
+        sessions: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0,
+        toolCalls: 0, activeProjects: 0, userMessages: 0, assistantMessages: 0, topProjects: []
+    )
+    @Published var aiSessionsChartJSON: String = "{}"
+    @Published var aiSessionDetails: [AISessionDetail] = []
+
     // MARK: - State
 
     @Published var isLoading: Bool = false
@@ -167,7 +177,10 @@ class DashboardViewModel: ObservableObject {
                 let data = try self.store.getWeeklyHeatmap()
                 let maxCount = data.map { $0.count }.max() ?? 0
                 let dataArray = data.map { "[\($0.dayOfWeek),\($0.hour),\($0.count)]" }
-                let json = "{\"data\":[\(dataArray.joined(separator: ","))],\"max\":\(maxCount)}"
+                // Today's dayOfWeek: 0=Mon...6=Sun
+                let weekday = Calendar.current.component(.weekday, from: Date()) // 1=Sun...7=Sat
+                let todayDow = (weekday + 5) % 7 // Convert to 0=Mon...6=Sun
+                let json = "{\"data\":[\(dataArray.joined(separator: ","))],\"max\":\(maxCount),\"todayDow\":\(todayDow)}"
 
                 DispatchQueue.main.async {
                     self.heatmapJSON = json
@@ -178,6 +191,48 @@ class DashboardViewModel: ObservableObject {
                     self.lastError = "Failed to load heatmap: \(error.localizedDescription)"
                 }
                 print("[Dashboard] loadHeatmap error: \(error)")
+            }
+        }
+    }
+
+    // MARK: - AI Sessions
+
+    func loadAISessions(days: Int = 7) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            let todayStr = dateFormatter.string(from: Date())
+
+            let kpi = self.claudeStore.getTodayKPI(for: todayStr)
+            let trends = self.claudeStore.getDailyTrends(days: days)
+            let projects = self.claudeStore.getProjectUsage(days: days)
+            let tools = self.claudeStore.getToolUsage(days: days)
+            let details = self.claudeStore.getSessionDetails(for: todayStr)
+
+            // Build chart JSON
+            let trendsJSON = trends.map {
+                "{\"date\":\"\($0.date)\",\"inputK\":\($0.inputTokensK),\"outputK\":\($0.outputTokensK),\"cacheK\":\($0.cacheReadTokensK),\"sessions\":\($0.sessions),\"tools\":\($0.toolCalls)}"
+            }.joined(separator: ",")
+
+            let projectsJSON = projects.prefix(10).map {
+                let name = $0.project.replacingOccurrences(of: "\"", with: "\\\"")
+                return "{\"name\":\"\(name)\",\"tokensK\":\($0.tokensK)}"
+            }.joined(separator: ",")
+
+            let toolsJSON = tools.prefix(10).map {
+                let name = $0.tool.replacingOccurrences(of: "\"", with: "\\\"")
+                return "{\"name\":\"\(name)\",\"count\":\($0.count)}"
+            }.joined(separator: ",")
+
+            let chartJSON = "{\"trends\":[\(trendsJSON)],\"projects\":[\(projectsJSON)],\"tools\":[\(toolsJSON)]}"
+
+            DispatchQueue.main.async {
+                self.aiKPI = kpi
+                self.aiSessionsChartJSON = chartJSON
+                self.aiSessionDetails = details
+                self.lastError = nil
             }
         }
     }

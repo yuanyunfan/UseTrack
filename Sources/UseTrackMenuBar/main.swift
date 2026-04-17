@@ -18,6 +18,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let dashboardWindowController = DashboardWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Apply saved appearance preference
+        AppearanceManager.shared.applyAppearance()
+
         // Start Collector subprocess (if not already running)
         startCollectorIfNeeded()
 

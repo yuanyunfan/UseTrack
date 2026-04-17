@@ -60,6 +60,10 @@ struct UseTrackCollector: ParsableCommand {
 
         let inputWatcher = InputWatcher(dbManager: db)
 
+        // Display Watcher — screen sleep/wake detection
+        let displayWatcher = DisplayWatcher(dbManager: db)
+        attentionScorer.setDisplayWatcher(displayWatcher)
+
         // Extended Watchers (不由 TrackingEngine 管理，独立运行)
         let gitRepoPaths = gitPaths.split(separator: ",").map {
             NSString(string: String($0).trimmingCharacters(in: .whitespaces)).expandingTildeInPath
@@ -79,7 +83,8 @@ struct UseTrackCollector: ParsableCommand {
             afkWatcher: afkWatcher,
             inputWatcher: inputWatcher,
             attentionScorer: attentionScorer,
-            mouseTracker: mouseTracker
+            mouseTracker: mouseTracker,
+            displayWatcher: displayWatcher
         )
 
         // 连接 AFKWatcher 回调 → TrackingEngine 状态转换
@@ -100,6 +105,7 @@ struct UseTrackCollector: ParsableCommand {
         print("  ✓ Attention Scorer — multi-screen window snapshots (60s interval)")
         print("  ✓ Mouse Tracker — tracking position, clicks, scrolls")
         print("  ✓ Input Watcher — keystroke/click counting (1min aggregation)")
+        print("  ✓ Display Watcher — screen sleep/wake detection")
         print("  ✓ Git Watcher — scanning repos for commits (5min interval)")
         print("  ✓ Obsidian Watcher — tracking note word counts (5min interval)")
         print("  ✓ TrackingEngine — state machine (active/idle/locked/asleep)")
@@ -113,6 +119,7 @@ struct UseTrackCollector: ParsableCommand {
             engine, appWatcher, windowWatcher, afkWatcher,
             screenDetector, mouseTracker, attentionScorer,
             inputWatcher, gitWatcher, obsidianWatcher,
+            displayWatcher,
         ]
         keepAliveTimers = [snapshotTimer]
 

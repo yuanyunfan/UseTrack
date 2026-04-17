@@ -12,6 +12,7 @@ enum DashboardPage: String, CaseIterable, Identifiable {
     case timeline = "Timeline"
     case trends = "Trends"
     case heatmap = "Heatmap"
+    case aiSessions = "AI Sessions"
     case settings = "Settings"
 
     var id: String { rawValue }
@@ -22,6 +23,7 @@ enum DashboardPage: String, CaseIterable, Identifiable {
         case .timeline: return "calendar.day.timeline.left"
         case .trends: return "chart.line.uptrend.xyaxis"
         case .heatmap: return "square.grid.3x3.fill"
+        case .aiSessions: return "brain.head.profile"
         case .settings: return "gearshape.fill"
         }
     }
@@ -32,6 +34,7 @@ enum DashboardPage: String, CaseIterable, Identifiable {
         case .timeline: return "时间线"
         case .trends: return "趋势"
         case .heatmap: return "热力图"
+        case .aiSessions: return "AI Sessions"
         case .settings: return "设置"
         }
     }
@@ -82,6 +85,21 @@ struct DashboardView: View {
             // Detail — fills remaining space
             detailView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .id(selectedPage)  // 切 tab 时强制重建 view，确保 onAppear 触发
+        }
+        .onChange(of: selectedPage) { page in
+            refreshPage(page)
+        }
+    }
+
+    private func refreshPage(_ page: DashboardPage) {
+        switch page {
+        case .today:     viewModel.loadToday()
+        case .timeline:  viewModel.loadTimeline(for: Date())
+        case .trends:    viewModel.loadTrends()
+        case .heatmap:   viewModel.loadHeatmap()
+        case .aiSessions: viewModel.loadAISessions()
+        case .settings:  viewModel.loadSettings()
         }
     }
 
@@ -96,6 +114,8 @@ struct DashboardView: View {
             TrendsView(viewModel: viewModel)
         case .heatmap:
             HeatmapView(viewModel: viewModel)
+        case .aiSessions:
+            AISessionsView(viewModel: viewModel)
         case .settings:
             SettingsView(viewModel: viewModel)
         }

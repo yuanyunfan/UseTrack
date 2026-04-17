@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UseTrack AI Sessions Charts</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Helvetica Neue", sans-serif;
+    background: transparent;
+}
+.chart-row { display: flex; width: 100%; height: 50%; }
+.chart-cell { flex: 1; height: 100%; }
+</style>
+</head>
+<body>
+<div class="chart-row">
+    <div id="tokenTrend" class="chart-cell"></div>
+    <div id="sessionTrend" class="chart-cell"></div>
+</div>
+<div class="chart-row">
+    <div id="projectBar" class="chart-cell"></div>
+    <div id="toolPie" class="chart-cell"></div>
+</div>
+<script src="echarts.min.js"></script>
+<script>
+(function() {
+    'use strict';
+
+    var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var T = {
+        text: isDark ? '#E5E5EA' : '#1C1C1E',
+        sub: isDark ? '#8E8E93' : '#AEAEB2',
+        line: isDark ? '#3A3A3C' : '#E5E5EA',
+        bg: isDark ? '#2C2C2E' : '#FFFFFF',
+        border: isDark ? '#3A3A3C' : '#D1D1D6'
+    };
+
+    var tokenChart = echarts.init(document.getElementById('tokenTrend'));
+    var sessionChart = echarts.init(document.getElementById('sessionTrend'));
+    var projectChart = echarts.init(document.getElementById('projectBar'));
+    var toolChart = echarts.init(document.getElementById('toolPie'));
+
+    var projectColors = ['#34C759','#007AFF','#FF9F0A','#AF52DE','#FF3B30','#5AC8FA','#FFD60A','#8E8E93'];
+    var toolColors = ['#FF9F0A','#007AFF','#34C759','#5AC8FA','#AF52DE','#FF3B30','#FFD60A','#8E8E93','#30D158','#64D2FF'];
+
+    function tooltip() {
+        return { backgroundColor: T.bg, borderColor: T.border, textStyle: { color: T.text, fontSize: 12 } };
+    }
+
+    function updateCharts(data) {
+        if (!data) return;
+        if (data.trends) renderTokenTrend(data.trends);
+        if (data.trends) renderSessionTrend(data.trends);
+        if (data.projects) renderProjectBar(data.projects);
+        if (data.tools) renderToolPie(data.tools);
+    }
+
+    function fmtK(n) { return Math.round(n).toLocaleString() + 'K'; }
+
+    function renderTokenTrend(trends) {
+        var dates = trends.map(function(d) { return d.date.substring(5); });
+        tokenChart.setOption({
+            tooltip: Object.assign({ trigger: 'axis' }, tooltip(), {
+                formatter: function(p) {
+                    var s = '<b>' + p[0].axisValue + '</b><br/>';
+                    var total = 0;
+                    p.forEach(function(i) { s += i.marker + ' ' + i.seriesName + ': ' + fmtK(i.value) + '<br/>'; total += i.value; });
+                    s += '● Total: ' + fmtK(total) + '<br/>';
+                    return s;
+                }
+            }),
+            legend: { data: ['Input', 'Output', 'Cache Read'], top: 5, right: 10, textStyle: { color: T.sub, fontSize: 10 } },
+            grid: { left: 60, right: 15, top: 35, bottom: 25 },
+            xAxis: { type: 'category', data: dates, axisLabel: { color: T.sub, fontSize: 10 }, axisLine: { lineStyle: { color: T.line } } },
+            yAxis: { type: 'value', name: 'K', nameTextStyle: { color: T.sub, fontSize: 9 }, axisLabel: { color: T.sub, fontSize: 9, formatter: function(v) { return v.toLocaleString(); } }, splitLine: { lineStyle: { color: T.line, type: 'dashed' } } },
+            series: [
+                { name: 'Input', type: 'line', data: trends.map(function(d) { return Math.round(d.inputK); }), smooth: true, lineStyle: { width: 2 },
+                  areaStyle: { color: { type: 'linear', x:0,y:0,x2:0,y2:1, colorStops: [{offset:0,color:'rgba(0,122,255,0.25)'},{offset:1,color:'rgba(0,122,255,0.02)'}] } },
+                  itemStyle: { color: '#007AFF' } },
+                { name: 'Output', type: 'line', data: trends.map(function(d) { return Math.round(d.outputK); }), smooth: true, lineStyle: { width: 2 },
+                  areaStyle: { color: { type: 'linear', x:0,y:0,x2:0,y2:1, colorStops: [{offset:0,color:'rgba(52,199,89,0.25)'},{offset:1,color:'rgba(52,199,89,0.02)'}] } },
+                  itemStyle: { color: '#34C759' } },
+                { name: 'Cache Read', type: 'line', data: trends.map(function(d) { return Math.round(d.cacheK); }), smooth: true,
+                  lineStyle: { width: 1.5, type: 'dashed' }, itemStyle: { color: '#FF9F0A' } }
+            ]
+        }, true);
+    }
+
+    function renderSessionTrend(trends) {
+        var dates = trends.map(function(d) { return d.date.substring(5); });
+        sessionChart.setOption({
+            tooltip: Object.assign({ trigger: 'axis' }, tooltip()),
+            legend: { data: ['Sessions', 'Tool 调用'], top: 5, right: 10, textStyle: { color: T.sub, fontSize: 10 } },
+            grid: { left: 45, right: 45, top: 35, bottom: 25 },
+            xAxis: { type: 'category', data: dates, axisLabel: { color: T.sub, fontSize: 10 }, axisLine: { lineStyle: { color: T.line } } },
+            yAxis: [
+                { type: 'value', name: 'Sessions', nameTextStyle: { color: T.sub, fontSize: 9 }, axisLabel: { color: T.sub, fontSize: 9 }, splitLine: { lineStyle: { color: T.line, type: 'dashed' } } },
+                { type: 'value', name: 'Tools', nameTextStyle: { color: T.sub, fontSize: 9 }, axisLabel: { color: T.sub, fontSize: 9 }, splitLine: { show: false } }
+            ],
+            series: [
+                { name: 'Sessions', type: 'bar', data: trends.map(function(d) { return d.sessions; }), barWidth: '40%',
+                  itemStyle: { color: '#007AFF', borderRadius: [3,3,0,0] } },
+                { name: 'Tool 调用', type: 'line', yAxisIndex: 1, data: trends.map(function(d) { return d.tools; }), smooth: true,
+                  lineStyle: { width: 2 }, itemStyle: { color: '#FF9F0A' } }
+            ]
+        }, true);
+    }
+
+    function renderProjectBar(projects) {
+        var top = projects.slice(0, 10);
+        var names = top.map(function(d) { return d.name; }).reverse();
+        var values = top.map(function(d) { return Math.round(d.tokensK); }).reverse();
+        projectChart.setOption({
+            tooltip: Object.assign({ trigger: 'axis', axisPointer: { type: 'shadow' } }, tooltip(), {
+                formatter: function(p) { return '<b>' + p[0].name + '</b><br/>' + p[0].value + 'K tokens'; }
+            }),
+            grid: { left: 110, right: 30, top: 15, bottom: 25 },
+            xAxis: { type: 'value', name: 'K tokens', nameTextStyle: { color: T.sub, fontSize: 9 },
+                axisLabel: { color: T.sub, fontSize: 9 }, splitLine: { lineStyle: { color: T.line, type: 'dashed' } } },
+            yAxis: { type: 'category', data: names,
+                axisLabel: { color: T.text, fontSize: 11, width: 100, overflow: 'truncate' },
+                axisLine: { lineStyle: { color: T.line } } },
+            series: [{
+                type: 'bar', data: values.map(function(v, i) {
+                    return { value: v, itemStyle: { color: projectColors[i % projectColors.length], borderRadius: [0, 4, 4, 0] } };
+                }), barWidth: '55%'
+            }]
+        }, true);
+    }
+
+    function renderToolPie(tools) {
+        var top = tools.slice(0, 10);
+        toolChart.setOption({
+            tooltip: Object.assign({ trigger: 'item' }, tooltip(), {
+                formatter: '{b}: {c} ({d}%)'
+            }),
+            series: [{
+                type: 'pie', radius: ['35%', '65%'], center: ['50%', '50%'],
+                label: { color: T.text, fontSize: 10, formatter: '{b}\n{d}%' },
+                data: top.map(function(d, i) {
+                    return { value: d.count, name: d.name, itemStyle: { color: toolColors[i % toolColors.length] } };
+                }),
+                emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.2)' } },
+                itemStyle: { borderRadius: 5, borderColor: T.bg, borderWidth: 2 }
+            }]
+        }, true);
+    }
+
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() { location.reload(); });
+
+    var ro = new ResizeObserver(function() {
+        tokenChart.resize(); sessionChart.resize(); projectChart.resize(); toolChart.resize();
+    });
+    ro.observe(document.getElementById('tokenTrend'));
+
+    window.updateChart = updateCharts;
+    updateCharts(null);
+})();
+</script>
+</body>
+</html>

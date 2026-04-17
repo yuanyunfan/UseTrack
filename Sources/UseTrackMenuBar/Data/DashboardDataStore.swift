@@ -424,7 +424,14 @@ class DashboardDataStore {
         var result: [(date: String, value: Double)] = []
         for row in try db.prepare(query, params) {
             let d = row[0] as? String ?? ""
-            let v = row[1] as? Double ?? 0
+            let v: Double
+            if let dv = row[1] as? Double {
+                v = dv
+            } else if let iv = row[1] as? Int64 {
+                v = Double(iv)
+            } else {
+                v = 0
+            }
             result.append((date: d, value: v))
         }
         return result
@@ -436,8 +443,8 @@ class DashboardDataStore {
         let db = try connect()
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
-        // Last 4 weeks
-        let startDate = cal.date(byAdding: .weekOfYear, value: -4, to: today)!
+        // Last 7 days
+        let startDate = cal.date(byAdding: .day, value: -6, to: today)!
         let endDate = cal.date(byAdding: .day, value: 1, to: today)!
 
         let startTs = isoString(for: startDate)
