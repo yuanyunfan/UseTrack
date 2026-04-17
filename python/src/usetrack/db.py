@@ -152,6 +152,7 @@ class UseTrackDB:
         limit: int = 100,
     ) -> list[dict]:
         """Query raw activity events within a time range."""
+        limit = max(1, min(limit, 10000))
         sql = """
             SELECT id, ts, activity, app_name, window_title, duration_s, meta, category
             FROM activity_stream
@@ -266,6 +267,7 @@ class UseTrackDB:
 
     async def search_activity(self, keyword: str, limit: int = 50) -> list[dict]:
         """Full-text search across window titles using FTS5."""
+        limit = max(1, min(limit, 10000))
         if not keyword or not keyword.strip():
             return []
         # Sanitize: wrap keyword in double quotes so FTS5 treats it as a literal
