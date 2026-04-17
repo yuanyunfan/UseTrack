@@ -57,12 +57,48 @@ struct AISessionDetail {
     let turns: Int           // assistant 消息数（有 token 的）
     let toolCalls: Int
     let model: String
+    let source: String      // "Claude Code", "OpenCode", "Hermes", "OpenClaw"
+
+    init(sessionId: String, project: String, topic: String, timeRange: String,
+         inputTokens: Int64, outputTokens: Int64, cacheReadTokens: Int64, totalTokens: Int64,
+         turns: Int, toolCalls: Int, model: String, source: String = "Claude Code") {
+        self.sessionId = sessionId; self.project = project; self.topic = topic
+        self.timeRange = timeRange; self.inputTokens = inputTokens
+        self.outputTokens = outputTokens; self.cacheReadTokens = cacheReadTokens
+        self.totalTokens = totalTokens; self.turns = turns; self.toolCalls = toolCalls
+        self.model = model; self.source = source
+    }
 }
 
 // MARK: - Claude Session Store
 
 class ClaudeSessionStore {
     private let basePath: String
+
+    /// ISO8601 formatters for parsing timestamps
+    private static let isoFmt: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoFmtNoFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+    private static let localDateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        return f
+    }()
+
+    /// Convert ISO timestamp (UTC) to local date string "yyyy-MM-dd"
+    static func localDateFromISO(_ isoStr: String) -> String? {
+        if let d = isoFmt.date(from: isoStr) { return localDateFmt.string(from: d) }
+        if let d = isoFmtNoFrac.date(from: isoStr) { return localDateFmt.string(from: d) }
+        return nil
+    }
 
     init() {
         self.basePath = NSString(string: "~/.claude/projects").expandingTildeInPath
@@ -109,7 +145,7 @@ class ClaudeSessionStore {
                         let objType = json["type"] as? String ?? ""
                         guard objType == "user" || objType == "human" else { return }
                         guard let ts = json["timestamp"] as? String else { return }
-                        let day = String(ts.prefix(10))
+                        guard let day = Self.localDateFromISO(ts) else { return }
                         guard day >= startDate && day < endDate else { return }
 
                         let sid = json["sessionId"] as? String ?? "unknown"
@@ -138,7 +174,7 @@ class ClaudeSessionStore {
                     guard !model.isEmpty else { return }
 
                     guard let ts = json["timestamp"] as? String else { return }
-                    let day = String(ts.prefix(10))
+                    guard let day = Self.localDateFromISO(ts) else { return }
                     guard day >= startDate && day < endDate else { return }
 
                     // Token extraction aligned with analyze.py normalizeClaudeUsage
@@ -432,7 +468,7 @@ private struct SessionAccumulator {
     var totalToolCalls: Int { toolCounts.values.reduce(0, +) }
 
     var activeDays: Set<String> {
-        Set(timestamps.map { String($0.prefix(10)) })
+        Set(timestamps.compactMap { ClaudeSessionStore.localDateFromISO($0) })
     }
 
     var timeRange: String {

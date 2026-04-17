@@ -42,6 +42,9 @@ class DashboardViewModel: ObservableObject {
     // MARK: - AI Sessions Page
 
     private let claudeStore = ClaudeSessionStore()
+    private let openCodeStore = OpenCodeSessionStore()
+    private let hermesStore = HermesSessionStore()
+    private let openClawStore = OpenClawSessionStore()
     @Published var aiKPI = AISessionKPI(
         sessions: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0,
         toolCalls: 0, activeProjects: 0, userMessages: 0, assistantMessages: 0, topProjects: []
@@ -197,6 +200,57 @@ class DashboardViewModel: ObservableObject {
 
     // MARK: - AI Sessions
 
+    // MARK: - KPI Aggregation Helpers
+
+    private func mergeKPIs(_ kpis: [AISessionKPI]) -> AISessionKPI {
+        var sessions = 0, toolCalls = 0, activeProjects = 0, userMsgs = 0, assistantMsgs = 0
+        var totalInput: Int64 = 0, totalOutput: Int64 = 0, totalCache: Int64 = 0
+        var allProjects: [String] = []
+
+        for k in kpis {
+            sessions += k.sessions
+            totalInput += k.totalInputTokens
+            totalOutput += k.totalOutputTokens
+            totalCache += k.totalCacheReadTokens
+            toolCalls += k.toolCalls
+            activeProjects += k.activeProjects
+            userMsgs += k.userMessages
+            assistantMsgs += k.assistantMessages
+            allProjects.append(contentsOf: k.topProjects)
+        }
+
+        return AISessionKPI(
+            sessions: sessions,
+            totalInputTokens: totalInput, totalOutputTokens: totalOutput, totalCacheReadTokens: totalCache,
+            toolCalls: toolCalls, activeProjects: activeProjects,
+            userMessages: userMsgs, assistantMessages: assistantMsgs,
+            topProjects: Array(allProjects.prefix(3))
+        )
+    }
+
+    private func mergeTrends(_ trendArrays: [[AISessionDailyTrend]]) -> [AISessionDailyTrend] {
+        var byDate: [String: AISessionDailyTrend] = [:]
+
+        for trends in trendArrays {
+            for t in trends {
+                if let existing = byDate[t.date] {
+                    byDate[t.date] = AISessionDailyTrend(
+                        date: t.date,
+                        inputTokensK: existing.inputTokensK + t.inputTokensK,
+                        outputTokensK: existing.outputTokensK + t.outputTokensK,
+                        cacheReadTokensK: existing.cacheReadTokensK + t.cacheReadTokensK,
+                        sessions: existing.sessions + t.sessions,
+                        toolCalls: existing.toolCalls + t.toolCalls
+                    )
+                } else {
+                    byDate[t.date] = t
+                }
+            }
+        }
+
+        return byDate.values.sorted { $0.date < $1.date }
+    }
+
     func loadAISessions(days: Int = 7) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -205,11 +259,28 @@ class DashboardViewModel: ObservableObject {
             dateFormatter.dateFormat = "yyyy-MM-dd"
             let todayStr = dateFormatter.string(from: Date())
 
-            let kpi = self.claudeStore.getTodayKPI(for: todayStr)
-            let trends = self.claudeStore.getDailyTrends(days: days)
+            // Gather from all sources
+            let claudeKPI = self.claudeStore.getTodayKPI(for: todayStr)
+            let openCodeKPI = self.openCodeStore.getTodayKPI(for: todayStr)
+            let hermesKPI = self.hermesStore.getTodayKPI(for: todayStr)
+            let openClawKPI = self.openClawStore.getTodayKPI(for: todayStr)
+            let kpi = self.mergeKPIs([claudeKPI, openCodeKPI, hermesKPI, openClawKPI])
+
+            let trends = self.mergeTrends([
+                self.claudeStore.getDailyTrends(days: days),
+                self.openCodeStore.getDailyTrends(days: days),
+                self.hermesStore.getDailyTrends(days: days),
+                self.openClawStore.getDailyTrends(days: days)
+            ])
+
             let projects = self.claudeStore.getProjectUsage(days: days)
             let tools = self.claudeStore.getToolUsage(days: days)
-            let details = self.claudeStore.getSessionDetails(for: todayStr)
+
+            var details = self.claudeStore.getSessionDetails(for: todayStr)
+            details.append(contentsOf: self.openCodeStore.getSessionDetails(for: todayStr))
+            details.append(contentsOf: self.hermesStore.getSessionDetails(for: todayStr))
+            details.append(contentsOf: self.openClawStore.getSessionDetails(for: todayStr))
+            details.sort { $0.totalTokens > $1.totalTokens }
 
             // Build chart JSON
             let trendsJSON = trends.map {
