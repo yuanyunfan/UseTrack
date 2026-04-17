@@ -159,7 +159,7 @@ def build_discord_payload(summary, focus, distraction, output, dw_trend, switch_
                             f"**活跃时长**: {format_minutes(total_min)}\n"
                             f"**深度工作**: {format_minutes(dw_min)} {trend_arrow(dw_min, avg_dw)}\n"
                             f"**生产力比**: {int(ratio * 100)}%\n"
-                            f"**上下文切换**: {switches}次 {trend_arrow(avg_sw, switches, True)}\n"
+                            f"**上下文切换**: {switches}次 {trend_arrow(switches, avg_sw, True)}\n"
                             f"**乒乓切换**: {ping_pong}次"
                         ),
                         "inline": True,
