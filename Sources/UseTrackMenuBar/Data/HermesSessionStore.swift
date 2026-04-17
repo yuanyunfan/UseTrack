@@ -8,6 +8,20 @@ import Foundation
 import SQLite
 
 class HermesSessionStore {
+    // MARK: - Scan Cache
+    private var scanCache: [String: [Row]] = [:]
+
+    private func cachedScan(from start: String, to end: String) -> [Row] {
+        let key = "\(start)|\(end)"
+        if let result = scanCache[key] { return result }
+        let result = scanSessions(from: start, to: end)
+        scanCache[key] = result
+        return result
+    }
+
+    func invalidateCache() {
+        scanCache.removeAll()
+    }
     private var dbPaths: [String] {
         var paths = [NSString(string: "~/.hermes/state.db").expandingTildeInPath]
         let profilesDir = NSString(string: "~/.hermes/profiles").expandingTildeInPath
@@ -83,7 +97,7 @@ class HermesSessionStore {
     // MARK: - Public API
 
     func getTodayKPI(for dateStr: String) -> AISessionKPI {
-        let rows = scanSessions(from: dateStr, to: nextDate(dateStr))
+        let rows = cachedScan(from: dateStr, to: nextDate(dateStr))
 
         var totalInput: Int64 = 0, totalOutput: Int64 = 0, totalCache: Int64 = 0
         var toolCalls = 0, userMsgs = 0
@@ -113,7 +127,7 @@ class HermesSessionStore {
         let start = cal.date(byAdding: .day, value: -(days - 1), to: today)!
         let end = cal.date(byAdding: .day, value: 1, to: today)!
 
-        let rows = scanSessions(from: fmtDate(start), to: fmtDate(end))
+        let rows = cachedScan(from: fmtDate(start), to: fmtDate(end))
 
         var daily: [String: (input: Int64, output: Int64, cache: Int64, sessions: Int, tools: Int)] = [:]
         for i in 0..<days {
@@ -152,7 +166,7 @@ class HermesSessionStore {
         let todayStr = fmtDate(today)
         let tomorrowStr = fmtDate(cal.date(byAdding: .day, value: 1, to: today)!)
 
-        let rows = scanSessions(from: todayStr, to: tomorrowStr)
+        let rows = cachedScan(from: todayStr, to: tomorrowStr)
 
         let hourFmt = DateFormatter()
         hourFmt.dateFormat = "HH"
@@ -186,7 +200,7 @@ class HermesSessionStore {
     }
 
     func getSessionDetails(for dateStr: String) -> [AISessionDetail] {
-        let rows = scanSessions(from: dateStr, to: nextDate(dateStr))
+        let rows = cachedScan(from: dateStr, to: nextDate(dateStr))
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "HH:mm"
 
@@ -208,16 +222,18 @@ class HermesSessionStore {
 
     // MARK: - Helpers
 
-    private func fmtDate(_ date: Date) -> String {
+    private static let dateFmt: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        return f
+    }()
+
+    private func fmtDate(_ date: Date) -> String {
+        Self.dateFmt.string(from: date)
     }
 
     private func nextDate(_ dateStr: String) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        guard let d = f.date(from: dateStr) else { return dateStr }
-        return f.string(from: Calendar.current.date(byAdding: .day, value: 1, to: d)!)
+        guard let d = Self.dateFmt.date(from: dateStr) else { return dateStr }
+        return Self.dateFmt.string(from: Calendar.current.date(byAdding: .day, value: 1, to: d)!)
     }
 }

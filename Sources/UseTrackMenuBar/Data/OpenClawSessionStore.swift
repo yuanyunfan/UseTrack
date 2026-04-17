@@ -10,6 +10,21 @@ import Foundation
 class OpenClawSessionStore {
     private let basePath: String
 
+    // MARK: - Scan Cache
+    private var scanCache: [String: [String: SessionAcc]] = [:]
+
+    private func cachedScan(from start: String, to end: String) -> [String: SessionAcc] {
+        let key = "\(start)|\(end)"
+        if let result = scanCache[key] { return result }
+        let result = scanSessions(from: start, to: end)
+        scanCache[key] = result
+        return result
+    }
+
+    func invalidateCache() {
+        scanCache.removeAll()
+    }
+
     init() {
         self.basePath = NSString(string: "~/.openclaw/agents").expandingTildeInPath
     }
@@ -33,15 +48,13 @@ class OpenClawSessionStore {
         }
 
         private func toLocalTime(_ iso: String) -> String {
-            let f1 = ISO8601DateFormatter()
-            f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let f2 = ISO8601DateFormatter()
-            f2.formatOptions = [.withInternetDateTime]
-            let timeFmt = DateFormatter(); timeFmt.dateFormat = "HH:mm"
-            if let d = f1.date(from: iso) { return timeFmt.string(from: d) }
-            if let d = f2.date(from: iso) { return timeFmt.string(from: d) }
+            if let d = ClaudeSessionStore.isoFmt.date(from: iso) { return Self.timeFmt.string(from: d) }
+            if let d = ClaudeSessionStore.isoFmtNoFrac.date(from: iso) { return Self.timeFmt.string(from: d) }
             return String(iso.prefix(5))
         }
+        private static let timeFmt: DateFormatter = {
+            let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+        }()
     }
 
     // MARK: - Core scan
@@ -132,7 +145,7 @@ class OpenClawSessionStore {
     // MARK: - Public API
 
     func getTodayKPI(for dateStr: String) -> AISessionKPI {
-        let sessions = scanSessions(from: dateStr, to: nextDate(dateStr))
+        let sessions = cachedScan(from: dateStr, to: nextDate(dateStr))
 
         var totalInput: Int64 = 0, totalOutput: Int64 = 0, totalCache: Int64 = 0
         var toolCalls = 0, userMsgs = 0, validSessions = 0
@@ -162,7 +175,7 @@ class OpenClawSessionStore {
         let start = cal.date(byAdding: .day, value: -(days - 1), to: today)!
         let end = cal.date(byAdding: .day, value: 1, to: today)!
 
-        let sessions = scanSessions(from: fmtDate(start), to: fmtDate(end))
+        let sessions = cachedScan(from: fmtDate(start), to: fmtDate(end))
 
         var daily: [String: (input: Int64, output: Int64, cache: Int64, sessions: Int, tools: Int)] = [:]
         for i in 0..<days {
@@ -199,7 +212,7 @@ class OpenClawSessionStore {
         let todayStr = fmtDate(today)
         let tomorrowStr = fmtDate(cal.date(byAdding: .day, value: 1, to: today)!)
 
-        let sessions = scanSessions(from: todayStr, to: tomorrowStr)
+        let sessions = cachedScan(from: todayStr, to: tomorrowStr)
 
         var hourly: [String: (input: Int64, output: Int64, cache: Int64, sessions: Int, tools: Int)] = [:]
         for h in 0..<24 {
@@ -232,7 +245,7 @@ class OpenClawSessionStore {
     }
 
     func getSessionDetails(for dateStr: String) -> [AISessionDetail] {
-        let sessions = scanSessions(from: dateStr, to: nextDate(dateStr))
+        let sessions = cachedScan(from: dateStr, to: nextDate(dateStr))
 
         return sessions.compactMap { sid, s in
             guard s.totalTokens > 0 else { return nil }
@@ -249,16 +262,18 @@ class OpenClawSessionStore {
 
     // MARK: - Helpers
 
-    private func fmtDate(_ date: Date) -> String {
+    private static let dateFmt: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        return f
+    }()
+
+    private func fmtDate(_ date: Date) -> String {
+        Self.dateFmt.string(from: date)
     }
 
     private func nextDate(_ dateStr: String) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        guard let d = f.date(from: dateStr) else { return dateStr }
-        return f.string(from: Calendar.current.date(byAdding: .day, value: 1, to: d)!)
+        guard let d = Self.dateFmt.date(from: dateStr) else { return dateStr }
+        return Self.dateFmt.string(from: Calendar.current.date(byAdding: .day, value: 1, to: d)!)
     }
 }

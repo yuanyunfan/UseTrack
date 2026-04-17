@@ -75,13 +75,28 @@ struct AISessionDetail {
 class ClaudeSessionStore {
     private let basePath: String
 
+    // MARK: - Scan Cache (eliminates repeated file I/O within one load cycle)
+    private var scanCache: [String: [String: SessionAccumulator]] = [:]
+
+    private func cachedScan(from start: String, to end: String) -> [String: SessionAccumulator] {
+        let key = "\(start)|\(end)"
+        if let result = scanCache[key] { return result }
+        let result = scanSessions(from: start, to: end)
+        scanCache[key] = result
+        return result
+    }
+
+    func invalidateCache() {
+        scanCache.removeAll()
+    }
+
     /// ISO8601 formatters for parsing timestamps
-    private static let isoFmt: ISO8601DateFormatter = {
+    static let isoFmt: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
-    private static let isoFmtNoFrac: ISO8601DateFormatter = {
+    static let isoFmtNoFrac: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
@@ -229,7 +244,7 @@ class ClaudeSessionStore {
     // MARK: - Public API
 
     func getTodayKPI(for dateStr: String) -> AISessionKPI {
-        let sessions = scanSessions(from: dateStr, to: nextDate(dateStr))
+        let sessions = cachedScan(from: dateStr, to: nextDate(dateStr))
 
         var totalInput: Int64 = 0, totalOutput: Int64 = 0, totalCache: Int64 = 0
         var toolCalls = 0, userMsgs = 0
@@ -267,7 +282,7 @@ class ClaudeSessionStore {
         let start = cal.date(byAdding: .day, value: -(days - 1), to: today)!
         let end = cal.date(byAdding: .day, value: 1, to: today)!
 
-        let sessions = scanSessions(from: isoDateString(start), to: isoDateString(end))
+        let sessions = cachedScan(from: isoDateString(start), to: isoDateString(end))
 
         // Aggregate by day
         var daily: [String: (input: Int64, output: Int64, cache: Int64, sessions: Set<String>, tools: Int)] = [:]
@@ -316,7 +331,7 @@ class ClaudeSessionStore {
         let todayStr = isoDateString(today)
         let tomorrowStr = isoDateString(cal.date(byAdding: .day, value: 1, to: today)!)
 
-        let sessions = scanSessions(from: todayStr, to: tomorrowStr)
+        let sessions = cachedScan(from: todayStr, to: tomorrowStr)
 
         // Initialize 24 hours
         var hourly: [String: (input: Int64, output: Int64, cache: Int64, sessions: Set<String>, tools: Int)] = [:]
@@ -367,7 +382,7 @@ class ClaudeSessionStore {
         let start = cal.date(byAdding: .day, value: -(days - 1), to: today)!
         let end = cal.date(byAdding: .day, value: 1, to: today)!
 
-        let sessions = scanSessions(from: isoDateString(start), to: isoDateString(end))
+        let sessions = cachedScan(from: isoDateString(start), to: isoDateString(end))
 
         var projectData: [String: (tokens: Int64, sessions: Set<String>)] = [:]
         for (sid, s) in sessions {
@@ -390,7 +405,7 @@ class ClaudeSessionStore {
         let start = cal.date(byAdding: .day, value: -(days - 1), to: today)!
         let end = cal.date(byAdding: .day, value: 1, to: today)!
 
-        let sessions = scanSessions(from: isoDateString(start), to: isoDateString(end))
+        let sessions = cachedScan(from: isoDateString(start), to: isoDateString(end))
 
         var tools: [String: Int] = [:]
         for (_, s) in sessions {
@@ -405,7 +420,7 @@ class ClaudeSessionStore {
     }
 
     func getSessionDetails(for dateStr: String) -> [AISessionDetail] {
-        let sessions = scanSessions(from: dateStr, to: nextDate(dateStr))
+        let sessions = cachedScan(from: dateStr, to: nextDate(dateStr))
 
         return sessions.compactMap { sid, s in
             let total = s.inputTokens + s.outputTokens + s.cacheReadTokens
@@ -501,17 +516,19 @@ class ClaudeSessionStore {
         return nil
     }
 
-    private func isoDateString(_ date: Date) -> String {
+    private static let dateFmt: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        return f
+    }()
+
+    private func isoDateString(_ date: Date) -> String {
+        Self.dateFmt.string(from: date)
     }
 
     private func nextDate(_ dateStr: String) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        guard let d = f.date(from: dateStr) else { return dateStr }
-        return f.string(from: Calendar.current.date(byAdding: .day, value: 1, to: d)!)
+        guard let d = Self.dateFmt.date(from: dateStr) else { return dateStr }
+        return Self.dateFmt.string(from: Calendar.current.date(byAdding: .day, value: 1, to: d)!)
     }
 }
 

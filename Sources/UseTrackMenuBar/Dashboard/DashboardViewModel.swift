@@ -259,37 +259,81 @@ class DashboardViewModel: ObservableObject {
             dateFormatter.dateFormat = "yyyy-MM-dd"
             let todayStr = dateFormatter.string(from: Date())
 
-            // Gather from all sources
-            let claudeKPI = self.claudeStore.getTodayKPI(for: todayStr)
-            let openCodeKPI = self.openCodeStore.getTodayKPI(for: todayStr)
-            let hermesKPI = self.hermesStore.getTodayKPI(for: todayStr)
-            let openClawKPI = self.openClawStore.getTodayKPI(for: todayStr)
-            let kpi = self.mergeKPIs([claudeKPI, openCodeKPI, hermesKPI, openClawKPI])
+            // Invalidate caches so fresh data is loaded
+            self.claudeStore.invalidateCache()
+            self.openCodeStore.invalidateCache()
+            self.hermesStore.invalidateCache()
+            self.openClawStore.invalidateCache()
 
-            let trends: [AISessionDailyTrend]
-            if days == 1 {
-                trends = self.mergeTrends([
-                    self.claudeStore.getHourlyTrends(),
-                    self.openCodeStore.getHourlyTrends(),
-                    self.hermesStore.getHourlyTrends(),
-                    self.openClawStore.getHourlyTrends()
-                ])
-            } else {
-                trends = self.mergeTrends([
-                    self.claudeStore.getDailyTrends(days: days),
-                    self.openCodeStore.getDailyTrends(days: days),
-                    self.hermesStore.getDailyTrends(days: days),
-                    self.openClawStore.getDailyTrends(days: days)
-                ])
+            // Parallel scan: each store runs on its own queue
+            var claudeKPI: AISessionKPI!
+            var openCodeKPI: AISessionKPI!
+            var hermesKPI: AISessionKPI!
+            var openClawKPI: AISessionKPI!
+            var claudeTrends: [AISessionDailyTrend] = []
+            var openCodeTrends: [AISessionDailyTrend] = []
+            var hermesTrends: [AISessionDailyTrend] = []
+            var openClawTrends: [AISessionDailyTrend] = []
+            var claudeDetails: [AISessionDetail] = []
+            var openCodeDetails: [AISessionDetail] = []
+            var hermesDetails: [AISessionDetail] = []
+            var openClawDetails: [AISessionDetail] = []
+            var projects: [AIProjectUsage] = []
+            var tools: [AIToolUsage] = []
+
+            let group = DispatchGroup()
+
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                claudeKPI = self.claudeStore.getTodayKPI(for: todayStr)
+                claudeTrends = days == 1
+                    ? self.claudeStore.getHourlyTrends()
+                    : self.claudeStore.getDailyTrends(days: days)
+                projects = self.claudeStore.getProjectUsage(days: days)
+                tools = self.claudeStore.getToolUsage(days: days)
+                claudeDetails = self.claudeStore.getSessionDetails(for: todayStr)
+                group.leave()
             }
 
-            let projects = self.claudeStore.getProjectUsage(days: days)
-            let tools = self.claudeStore.getToolUsage(days: days)
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                openCodeKPI = self.openCodeStore.getTodayKPI(for: todayStr)
+                openCodeTrends = days == 1
+                    ? self.openCodeStore.getHourlyTrends()
+                    : self.openCodeStore.getDailyTrends(days: days)
+                openCodeDetails = self.openCodeStore.getSessionDetails(for: todayStr)
+                group.leave()
+            }
 
-            var details = self.claudeStore.getSessionDetails(for: todayStr)
-            details.append(contentsOf: self.openCodeStore.getSessionDetails(for: todayStr))
-            details.append(contentsOf: self.hermesStore.getSessionDetails(for: todayStr))
-            details.append(contentsOf: self.openClawStore.getSessionDetails(for: todayStr))
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                hermesKPI = self.hermesStore.getTodayKPI(for: todayStr)
+                hermesTrends = days == 1
+                    ? self.hermesStore.getHourlyTrends()
+                    : self.hermesStore.getDailyTrends(days: days)
+                hermesDetails = self.hermesStore.getSessionDetails(for: todayStr)
+                group.leave()
+            }
+
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                openClawKPI = self.openClawStore.getTodayKPI(for: todayStr)
+                openClawTrends = days == 1
+                    ? self.openClawStore.getHourlyTrends()
+                    : self.openClawStore.getDailyTrends(days: days)
+                openClawDetails = self.openClawStore.getSessionDetails(for: todayStr)
+                group.leave()
+            }
+
+            group.wait()
+
+            let kpi = self.mergeKPIs([claudeKPI, openCodeKPI, hermesKPI, openClawKPI])
+            let trends = self.mergeTrends([claudeTrends, openCodeTrends, hermesTrends, openClawTrends])
+
+            var details = claudeDetails
+            details.append(contentsOf: openCodeDetails)
+            details.append(contentsOf: hermesDetails)
+            details.append(contentsOf: openClawDetails)
             details.sort { $0.totalTokens > $1.totalTokens }
 
             // Build chart JSON
