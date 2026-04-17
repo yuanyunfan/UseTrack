@@ -38,9 +38,16 @@ struct AppRule: Identifiable {
 
 class DashboardDataStore {
     private let dbPath: String
+    private let syncConfig: SyncConfig?
+
+    struct SyncConfig {
+        let machineId: String
+        let syncDir: String
+    }
 
     init(dbPath: String = NSString(string: "~/.usetrack/usetrack.db").expandingTildeInPath) {
         self.dbPath = dbPath
+        self.syncConfig = Self.loadSyncConfig()
     }
 
     private func connect() throws -> Connection {
@@ -50,6 +57,103 @@ class DashboardDataStore {
     /// Read-write connection for settings mutations
     private func connectReadWrite() throws -> Connection {
         return try Connection(dbPath)
+    }
+
+    // MARK: - Sync Support
+
+    /// Load sync config from ~/.usetrack/sync.toml
+    private static func loadSyncConfig() -> SyncConfig? {
+        let path = NSString(string: "~/.usetrack/sync.toml").expandingTildeInPath
+        guard let data = FileManager.default.contents(atPath: path),
+              let content = String(data: data, encoding: .utf8) else { return nil }
+
+        // Simple TOML parser for our known keys
+        var enabled = false
+        var machineId: String?
+        var syncDir: String?
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("enabled") && trimmed.contains("true") { enabled = true }
+            if let val = Self.parseTOMLString(trimmed, key: "machine_id") { machineId = val }
+            if let val = Self.parseTOMLString(trimmed, key: "sync_dir") {
+                syncDir = NSString(string: val).expandingTildeInPath
+            }
+        }
+        guard enabled, let mid = machineId, let sd = syncDir else { return nil }
+        return SyncConfig(machineId: mid, syncDir: sd)
+    }
+
+    private static func parseTOMLString(_ line: String, key: String) -> String? {
+        guard line.hasPrefix(key) else { return nil }
+        guard let eqIdx = line.firstIndex(of: "=") else { return nil }
+        var val = String(line[line.index(after: eqIdx)...]).trimmingCharacters(in: .whitespaces)
+        // Remove quotes
+        if val.hasPrefix("\"") && val.hasSuffix("\"") {
+            val = String(val.dropFirst().dropLast())
+        }
+        return val.isEmpty ? nil : val
+    }
+
+    /// Find remote .db files from other machines for a given date range
+    private func findRemoteDbs(startDate: String, endDate: String) -> [String] {
+        guard let config = syncConfig else {
+
+            return []
+        }
+        let fm = FileManager.default
+        let syncDir = config.syncDir
+        guard let machineDirs = try? fm.contentsOfDirectory(atPath: syncDir) else {
+
+            return []
+        }
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+
+        guard let startD = fmt.date(from: startDate),
+              let endD = fmt.date(from: endDate) else { return [] }
+
+        var result: [String] = []
+        let cal = Calendar.current
+
+        for machineDir in machineDirs {
+            if machineDir == config.machineId { continue }  // Skip own machine
+            if machineDir.hasPrefix(".") { continue }
+
+            let machinePath = (syncDir as NSString).appendingPathComponent(machineDir)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: machinePath, isDirectory: &isDir), isDir.boolValue else { continue }
+
+            var d = startD
+            while d <= endD {
+                let dateStr = fmt.string(from: d)
+                let dbFile = (machinePath as NSString).appendingPathComponent("\(dateStr).db")
+                if fm.fileExists(atPath: dbFile) {
+                    result.append(dbFile)
+                }
+                d = cal.date(byAdding: .day, value: 1, to: d)!
+            }
+        }
+        return result
+    }
+
+    /// Query a remote db and return scalar Double
+    private func queryRemoteScalar(_ dbPath: String, sql: String, params: [Binding?]) -> Double {
+        guard let db = try? Connection(dbPath, readonly: true) else { return 0 }
+        return (try? db.scalar(sql, params) as? Double) ?? 0
+    }
+
+    /// Query a remote db and return scalar Int64
+    private func queryRemoteScalarInt(_ dbPath: String, sql: String, params: [Binding?]) -> Int64 {
+        guard let db = try? Connection(dbPath, readonly: true) else { return 0 }
+        return (try? db.scalar(sql, params) as? Int64) ?? 0
+    }
+
+    /// Query a remote db and return rows as [[Binding?]]
+    private func queryRemoteRows(_ dbPath: String, sql: String, params: [Binding?]) -> [[Binding?]] {
+        guard let db = try? Connection(dbPath, readonly: true) else { return [] }
+        guard let stmt = try? db.prepare(sql, params) else { return [] }
+        return stmt.map { Array($0) }
     }
 
     // MARK: - Date Helpers
@@ -92,7 +196,7 @@ class DashboardDataStore {
             FROM activity_stream
             WHERE ts >= ? AND ts < ? AND category = 'deep_work'
         """
-        let dwMin = try db.scalar(dwQuery, [range.start, range.end]) as? Double ?? 0
+        var dwMin = try db.scalar(dwQuery, [range.start, range.end]) as? Double ?? 0
 
         // Total active minutes
         let totalQuery = """
@@ -101,7 +205,7 @@ class DashboardDataStore {
             WHERE ts >= ? AND ts < ?
               AND activity NOT IN ('idle_start', 'idle_end')
         """
-        let activeMin = try db.scalar(totalQuery, [range.start, range.end]) as? Double ?? 0
+        var activeMin = try db.scalar(totalQuery, [range.start, range.end]) as? Double ?? 0
 
         // Context switches
         let switchQuery = """
@@ -109,7 +213,7 @@ class DashboardDataStore {
             FROM activity_stream
             WHERE ts >= ? AND ts < ? AND activity = 'app_switch'
         """
-        let switches = try db.scalar(switchQuery, [range.start, range.end]) as? Int64 ?? 0
+        var switches = try db.scalar(switchQuery, [range.start, range.end]) as? Int64 ?? 0
 
         // Ping-pong switches (< 5 seconds)
         let ppQuery = """
@@ -118,7 +222,16 @@ class DashboardDataStore {
             WHERE ts >= ? AND ts < ? AND activity = 'app_switch'
               AND duration_s IS NOT NULL AND duration_s < 5
         """
-        let pingPong = try db.scalar(ppQuery, [range.start, range.end]) as? Int64 ?? 0
+        var pingPong = try db.scalar(ppQuery, [range.start, range.end]) as? Int64 ?? 0
+
+        // Merge remote data
+        let dateStr = dateString(for: date)
+        for remotePath in findRemoteDbs(startDate: dateStr, endDate: dateStr) {
+            dwMin += queryRemoteScalar(remotePath, sql: dwQuery, params: [range.start, range.end])
+            activeMin += queryRemoteScalar(remotePath, sql: totalQuery, params: [range.start, range.end])
+            switches += queryRemoteScalarInt(remotePath, sql: switchQuery, params: [range.start, range.end])
+            pingPong += queryRemoteScalarInt(remotePath, sql: ppQuery, params: [range.start, range.end])
+        }
 
         let ratio = activeMin > 0 ? dwMin / activeMin : 0
 
@@ -207,6 +320,33 @@ class DashboardDataStore {
             }
         }
 
+        // Merge remote energy curve data
+        let dateStr = dateString(for: date)
+        let prevDateStr = dateString(for: date.addingTimeInterval(-86400))
+        for remotePath in findRemoteDbs(startDate: prevDateStr, endDate: dateStr) {
+            let remoteRows = queryRemoteRows(remotePath, sql: query, params: [startTs, endTs])
+            for row in remoteRows {
+                guard let tsStr = row[0] as? String else { continue }
+                let duration = (row[1] as? Double) ?? 0
+                let category = (row[2] as? String) ?? ""
+                guard let startDate = formatter.date(from: tsStr) ?? formatterFrac.date(from: String(tsStr.prefix(23))) else { continue }
+
+                let isDeepWork = (category == "deep_work")
+                var remaining = duration
+                var cursor = startDate
+                while remaining > 0 {
+                    let slot = slotFormatter.string(from: cursor)
+                    let nextHour = cal.nextDate(after: cursor, matching: DateComponents(minute: 0, second: 0), matchingPolicy: .strict, direction: .forward) ?? cursor.addingTimeInterval(3600)
+                    let secsUntilNextHour = nextHour.timeIntervalSince(cursor)
+                    let chunk = min(remaining, secsUntilNextHour)
+                    activeBySlot[slot, default: 0] += chunk
+                    if isDeepWork { dwBySlot[slot, default: 0] += chunk }
+                    remaining -= chunk
+                    cursor = cursor.addingTimeInterval(chunk)
+                }
+            }
+        }
+
         // Build all 24 hour slots, including those with no activity
         var result: [(hour: Int, activeMin: Double, deepWorkMin: Double)] = []
         for i in 0..<24 {
@@ -239,13 +379,25 @@ class DashboardDataStore {
             ORDER BY minutes DESC
         """
 
-        var result: [(category: String, minutes: Double)] = []
+        var catMap: [String: Double] = [:]
         for row in try db.prepare(query, [range.start, range.end]) {
             let cat = row[0] as? String ?? "other"
             let min = row[1] as? Double ?? 0
-            result.append((category: cat, minutes: min))
+            catMap[cat, default: 0] += min
         }
-        return result
+
+        // Merge remote
+        let dateStr = dateString(for: date)
+        for remotePath in findRemoteDbs(startDate: dateStr, endDate: dateStr) {
+            for row in queryRemoteRows(remotePath, sql: query, params: [range.start, range.end]) {
+                let cat = (row[0] as? String) ?? "other"
+                let min = (row[1] as? Double) ?? 0
+                catMap[cat, default: 0] += min
+            }
+        }
+
+        return catMap.map { (category: $0.key, minutes: $0.value) }
+            .sorted { $0.minutes > $1.minutes }
     }
 
     // MARK: - Top Apps
@@ -263,17 +415,32 @@ class DashboardDataStore {
               AND activity = 'app_switch' AND app_name IS NOT NULL
             GROUP BY app_name, category
             ORDER BY minutes DESC
-            LIMIT ?
         """
 
-        var result: [(appName: String, category: String, minutes: Double)] = []
-        for row in try db.prepare(query, [range.start, range.end, limit]) {
+        // Use map for merging: (appName, category) → minutes
+        var appMap: [String: (category: String, minutes: Double)] = [:]
+        for row in try db.prepare(query, [range.start, range.end]) {
             let name = row[0] as? String ?? ""
             let cat = row[1] as? String ?? "other"
             let min = row[2] as? Double ?? 0
-            result.append((appName: name, category: cat, minutes: min))
+            appMap[name, default: (category: cat, minutes: 0)].minutes += min
         }
-        return result
+
+        // Merge remote
+        let dateStr = dateString(for: date)
+        for remotePath in findRemoteDbs(startDate: dateStr, endDate: dateStr) {
+            for row in queryRemoteRows(remotePath, sql: query, params: [range.start, range.end]) {
+                let name = (row[0] as? String) ?? ""
+                let cat = (row[1] as? String) ?? "other"
+                let min = (row[2] as? Double) ?? 0
+                appMap[name, default: (category: cat, minutes: 0)].minutes += min
+            }
+        }
+
+        return appMap.map { (appName: $0.key, category: $0.value.category, minutes: $0.value.minutes) }
+            .sorted { $0.minutes > $1.minutes }
+            .prefix(limit)
+            .map { $0 }
     }
 
     // MARK: - Timeline Events (Gantt chart)
@@ -307,28 +474,43 @@ class DashboardDataStore {
 
         var result: [TimelineEvent] = []
         for row in try db.prepare(query, [range.start, range.end]) {
-            let app = row[0] as? String ?? ""
-            let tsStr = row[1] as? String ?? ""
-            let durationS = row[2] as? Double ?? 0
-            let category = row[3] as? String ?? "other"
-
-            // Parse start time
-            guard let startDate = isoFmt.date(from: tsStr) ?? isoFmtNoFrac.date(from: tsStr) ?? Self.parseFlexibleDate(tsStr) else {
-                continue
+            if let event = Self.parseTimelineRow(row, isoFmt: isoFmt, isoFmtNoFrac: isoFmtNoFrac, outputFmt: outputFmt) {
+                result.append(event)
             }
-
-            let endDate = startDate.addingTimeInterval(durationS)
-            let durationMin = durationS / 60.0
-
-            result.append(TimelineEvent(
-                app: app,
-                start: outputFmt.string(from: startDate),
-                end: outputFmt.string(from: endDate),
-                category: category,
-                durationMin: Double(round(durationMin * 10) / 10)
-            ))
         }
-        return result
+
+        // Merge remote timeline events
+        let dateStr = dateString(for: date)
+        for remotePath in findRemoteDbs(startDate: dateStr, endDate: dateStr) {
+            for row in queryRemoteRows(remotePath, sql: query, params: [range.start, range.end]) {
+                if let event = Self.parseTimelineRow(row, isoFmt: isoFmt, isoFmtNoFrac: isoFmtNoFrac, outputFmt: outputFmt) {
+                    result.append(event)
+                }
+            }
+        }
+
+        return result.sorted { $0.start < $1.start }
+    }
+
+    private static func parseTimelineRow(_ row: [Binding?], isoFmt: ISO8601DateFormatter, isoFmtNoFrac: ISO8601DateFormatter, outputFmt: DateFormatter) -> TimelineEvent? {
+        let app = (row[0] as? String) ?? ""
+        let tsStr = (row[1] as? String) ?? ""
+        let durationS = (row[2] as? Double) ?? 0
+        let category = (row[3] as? String) ?? "other"
+
+        guard let startDate = isoFmt.date(from: tsStr) ?? isoFmtNoFrac.date(from: tsStr) ?? parseFlexibleDate(tsStr) else {
+            return nil
+        }
+        let endDate = startDate.addingTimeInterval(durationS)
+        let durationMin = durationS / 60.0
+
+        return TimelineEvent(
+            app: app,
+            start: outputFmt.string(from: startDate),
+            end: outputFmt.string(from: endDate),
+            category: category,
+            durationMin: Double(round(durationMin * 10) / 10)
+        )
     }
 
     /// Flexible date parser for SQLite datetime formats
@@ -421,7 +603,7 @@ class DashboardDataStore {
             params = [dateString(for: startDate), dateString(for: endDate), metric]
         }
 
-        var result: [(date: String, value: Double)] = []
+        var dateMap: [String: Double] = [:]
         for row in try db.prepare(query, params) {
             let d = row[0] as? String ?? ""
             let v: Double
@@ -432,9 +614,25 @@ class DashboardDataStore {
             } else {
                 v = 0
             }
-            result.append((date: d, value: v))
+            dateMap[d, default: 0] += v
         }
-        return result
+
+        // Merge remote trends
+        let startDateStr = dateString(for: startDate)
+        let endDateStr = dateString(for: today)
+        for remotePath in findRemoteDbs(startDate: startDateStr, endDate: endDateStr) {
+            for row in queryRemoteRows(remotePath, sql: query, params: params) {
+                let d = (row[0] as? String) ?? ""
+                let v: Double
+                if let dv = row[1] as? Double { v = dv }
+                else if let iv = row[1] as? Int64 { v = Double(iv) }
+                else { v = 0 }
+                dateMap[d, default: 0] += v
+            }
+        }
+
+        return dateMap.sorted { $0.key < $1.key }
+            .map { (date: $0.key, value: $0.value) }
     }
 
     // MARK: - Weekly Heatmap
@@ -467,14 +665,30 @@ class DashboardDataStore {
             ORDER BY day_of_week, hour
         """
 
-        var result: [(dayOfWeek: Int, hour: Int, count: Int)] = []
+        var heatMap: [String: Int] = [:]  // "dow-hour" → count
         for row in try db.prepare(query, [startTs, endTs]) {
             let dow = (row[0] as? Int64).map { Int($0) } ?? 0
             let hour = (row[1] as? Int64).map { Int($0) } ?? 0
             let count = (row[2] as? Int64).map { Int($0) } ?? 0
-            result.append((dayOfWeek: dow, hour: hour, count: count))
+            heatMap["\(dow)-\(hour)", default: 0] += count
         }
-        return result
+
+        // Merge remote heatmap
+        let startDateStr = dateString(for: startDate)
+        let endDateStr = dateString(for: today)
+        for remotePath in findRemoteDbs(startDate: startDateStr, endDate: endDateStr) {
+            for row in queryRemoteRows(remotePath, sql: query, params: [startTs, endTs]) {
+                let dow = (row[0] as? Int64).map { Int($0) } ?? 0
+                let hour = (row[1] as? Int64).map { Int($0) } ?? 0
+                let count = (row[2] as? Int64).map { Int($0) } ?? 0
+                heatMap["\(dow)-\(hour)", default: 0] += count
+            }
+        }
+
+        return heatMap.map { key, count in
+            let parts = key.split(separator: "-").map { Int($0) ?? 0 }
+            return (dayOfWeek: parts[0], hour: parts[1], count: count)
+        }.sorted { ($0.dayOfWeek, $0.hour) < ($1.dayOfWeek, $1.hour) }
     }
 
     // MARK: - App Rules CRUD
