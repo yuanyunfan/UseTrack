@@ -193,6 +193,46 @@ class OpenCodeSessionStore {
         }
     }
 
+    func getHourlyTrends() -> [AISessionDailyTrend] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let todayStr = fmtDate(today)
+        let tomorrowStr = fmtDate(cal.date(byAdding: .day, value: 1, to: today)!)
+
+        let sessions = scanSessions(from: todayStr, to: tomorrowStr)
+
+        let hourFmt = DateFormatter()
+        hourFmt.dateFormat = "HH"
+        hourFmt.timeZone = .current
+
+        var hourly: [String: (input: Int64, output: Int64, cache: Int64, sessions: Int, tools: Int)] = [:]
+        for h in 0..<24 {
+            hourly[String(format: "%02d:00", h)] = (0, 0, 0, 0, 0)
+        }
+
+        for (_, s) in sessions {
+            guard s.totalTokens > 0, s.minTime < .greatestFiniteMagnitude else { continue }
+            let hour = hourFmt.string(from: Date(timeIntervalSince1970: s.minTime / 1000)) + ":00"
+            guard var entry = hourly[hour] else { continue }
+            entry.input += s.inputTokens
+            entry.output += s.outputTokens
+            entry.cache += s.cacheReadTokens
+            entry.sessions += 1
+            entry.tools += s.toolCalls
+            hourly[hour] = entry
+        }
+
+        return hourly.keys.sorted().map { hour in
+            let d = hourly[hour]!
+            return AISessionDailyTrend(
+                date: hour, inputTokensK: Double(d.input) / 1000.0,
+                outputTokensK: Double(d.output) / 1000.0,
+                cacheReadTokensK: Double(d.cache) / 1000.0,
+                sessions: d.sessions, toolCalls: d.tools
+            )
+        }
+    }
+
     func getSessionDetails(for dateStr: String) -> [AISessionDetail] {
         let sessions = scanSessions(from: dateStr, to: nextDate(dateStr))
 

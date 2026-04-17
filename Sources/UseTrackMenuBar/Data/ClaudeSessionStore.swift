@@ -100,6 +100,19 @@ class ClaudeSessionStore {
         return nil
     }
 
+    private static let localHourFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH"
+        f.timeZone = .current
+        return f
+    }()
+
+    static func localHourFromISO(_ isoStr: String) -> String? {
+        if let d = isoFmt.date(from: isoStr) { return localHourFmt.string(from: d) }
+        if let d = isoFmtNoFrac.date(from: isoStr) { return localHourFmt.string(from: d) }
+        return nil
+    }
+
     init() {
         self.basePath = NSString(string: "~/.claude/projects").expandingTildeInPath
     }
@@ -288,6 +301,57 @@ class ClaudeSessionStore {
             let d = daily[day]!
             return AISessionDailyTrend(
                 date: day,
+                inputTokensK: Double(d.input) / 1000.0,
+                outputTokensK: Double(d.output) / 1000.0,
+                cacheReadTokensK: Double(d.cache) / 1000.0,
+                sessions: d.sessions.count,
+                toolCalls: d.tools
+            )
+        }
+    }
+
+    func getHourlyTrends() -> [AISessionDailyTrend] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let todayStr = isoDateString(today)
+        let tomorrowStr = isoDateString(cal.date(byAdding: .day, value: 1, to: today)!)
+
+        let sessions = scanSessions(from: todayStr, to: tomorrowStr)
+
+        // Initialize 24 hours
+        var hourly: [String: (input: Int64, output: Int64, cache: Int64, sessions: Set<String>, tools: Int)] = [:]
+        for h in 0..<24 {
+            hourly[String(format: "%02d:00", h)] = (0, 0, 0, Set(), 0)
+        }
+
+        for (sid, s) in sessions {
+            // Distribute tokens across hours based on timestamps
+            // Use first timestamp hour as primary hour for token attribution
+            if let primaryHour = s.timestamps.compactMap({ ClaudeSessionStore.localHourFromISO($0) }).min() {
+                let key = primaryHour + ":00"
+                var entry = hourly[key] ?? (0, 0, 0, Set(), 0)
+                entry.input += s.inputTokens
+                entry.output += s.outputTokens
+                entry.cache += s.cacheReadTokens
+                entry.tools += s.totalToolCalls
+                entry.sessions.insert(sid)
+                hourly[key] = entry
+            }
+            // Mark session presence in all active hours
+            for ts in s.timestamps {
+                if let hour = ClaudeSessionStore.localHourFromISO(ts) {
+                    let key = hour + ":00"
+                    var entry = hourly[key] ?? (0, 0, 0, Set(), 0)
+                    entry.sessions.insert(sid)
+                    hourly[key] = entry
+                }
+            }
+        }
+
+        return hourly.keys.sorted().map { hour in
+            let d = hourly[hour]!
+            return AISessionDailyTrend(
+                date: hour,
                 inputTokensK: Double(d.input) / 1000.0,
                 outputTokensK: Double(d.output) / 1000.0,
                 cacheReadTokensK: Double(d.cache) / 1000.0,

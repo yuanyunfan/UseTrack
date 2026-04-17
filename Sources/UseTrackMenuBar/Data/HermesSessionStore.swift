@@ -146,6 +146,45 @@ class HermesSessionStore {
         }
     }
 
+    func getHourlyTrends() -> [AISessionDailyTrend] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let todayStr = fmtDate(today)
+        let tomorrowStr = fmtDate(cal.date(byAdding: .day, value: 1, to: today)!)
+
+        let rows = scanSessions(from: todayStr, to: tomorrowStr)
+
+        let hourFmt = DateFormatter()
+        hourFmt.dateFormat = "HH"
+        hourFmt.timeZone = .current
+
+        var hourly: [String: (input: Int64, output: Int64, cache: Int64, sessions: Int, tools: Int)] = [:]
+        for h in 0..<24 {
+            hourly[String(format: "%02d:00", h)] = (0, 0, 0, 0, 0)
+        }
+
+        for r in rows {
+            let hour = hourFmt.string(from: Date(timeIntervalSince1970: r.startedAt)) + ":00"
+            guard var entry = hourly[hour] else { continue }
+            entry.input += r.inputTokens
+            entry.output += r.outputTokens
+            entry.cache += r.cacheReadTokens
+            entry.sessions += 1
+            entry.tools += r.toolCallCount
+            hourly[hour] = entry
+        }
+
+        return hourly.keys.sorted().map { hour in
+            let d = hourly[hour]!
+            return AISessionDailyTrend(
+                date: hour, inputTokensK: Double(d.input) / 1000.0,
+                outputTokensK: Double(d.output) / 1000.0,
+                cacheReadTokensK: Double(d.cache) / 1000.0,
+                sessions: d.sessions, toolCalls: d.tools
+            )
+        }
+    }
+
     func getSessionDetails(for dateStr: String) -> [AISessionDetail] {
         let rows = scanSessions(from: dateStr, to: nextDate(dateStr))
         let timeFmt = DateFormatter()

@@ -18,12 +18,13 @@ struct AISessionsView: View {
                 kpiCards
 
                 Picker("时间范围", selection: $selectedDays) {
+                    Text("1 天").tag(1)
                     Text("7 天").tag(7)
                     Text("14 天").tag(14)
                     Text("30 天").tag(30)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 250)
+                .frame(width: 300)
                 .onChange(of: selectedDays) { _ in
                     viewModel.loadAISessions(days: selectedDays)
                 }

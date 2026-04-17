@@ -266,12 +266,22 @@ class DashboardViewModel: ObservableObject {
             let openClawKPI = self.openClawStore.getTodayKPI(for: todayStr)
             let kpi = self.mergeKPIs([claudeKPI, openCodeKPI, hermesKPI, openClawKPI])
 
-            let trends = self.mergeTrends([
-                self.claudeStore.getDailyTrends(days: days),
-                self.openCodeStore.getDailyTrends(days: days),
-                self.hermesStore.getDailyTrends(days: days),
-                self.openClawStore.getDailyTrends(days: days)
-            ])
+            let trends: [AISessionDailyTrend]
+            if days == 1 {
+                trends = self.mergeTrends([
+                    self.claudeStore.getHourlyTrends(),
+                    self.openCodeStore.getHourlyTrends(),
+                    self.hermesStore.getHourlyTrends(),
+                    self.openClawStore.getHourlyTrends()
+                ])
+            } else {
+                trends = self.mergeTrends([
+                    self.claudeStore.getDailyTrends(days: days),
+                    self.openCodeStore.getDailyTrends(days: days),
+                    self.hermesStore.getDailyTrends(days: days),
+                    self.openClawStore.getDailyTrends(days: days)
+                ])
+            }
 
             let projects = self.claudeStore.getProjectUsage(days: days)
             let tools = self.claudeStore.getToolUsage(days: days)
