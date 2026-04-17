@@ -318,7 +318,7 @@ class DailyReporter:
                 f"\U0001f4a1 \u5a31\u4e50/\u6d4f\u89c8\u65f6\u95f4 {dist_min:.0f} \u5206\u949f\uff0c\u8003\u8651\u7528 Focus Mode \u9650\u5236"
             )
 
-        if total_min and deep_work_min / total_min < 0.3:
+        if total_min > 0 and deep_work_min / total_min < 0.3:
             suggestions.append(
                 "\U0001f4a1 \u751f\u4ea7\u529b\u6bd4\u4f4e\u4e8e 30%\uff0c\u5c1d\u8bd5\u4f7f\u7528\u756a\u8304\u949f\u5de5\u4f5c\u6cd5"
             )
