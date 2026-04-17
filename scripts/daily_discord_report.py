@@ -54,16 +54,18 @@ async def gather_data():
     db = UseTrackDB(db_path=DB_PATH)
     await db.connect()
 
-    summary, focus, distraction, output, dw_trend, switch_trend = await asyncio.gather(
-        db.get_activity_summary("today"),
-        db.get_focus_metrics("today"),
-        db.get_distraction_patterns("today"),
-        db.get_output_metrics("today"),
-        db.get_trends("deep_work", 7),
-        db.get_trends("context_switches", 7),
-    )
+    try:
+        summary, focus, distraction, output, dw_trend, switch_trend = await asyncio.gather(
+            db.get_activity_summary("today"),
+            db.get_focus_metrics("today"),
+            db.get_distraction_patterns("today"),
+            db.get_output_metrics("today"),
+            db.get_trends("deep_work", 7),
+            db.get_trends("context_switches", 7),
+        )
+    finally:
+        await db.close()
 
-    await db.close()
     return summary, focus, distraction, output, dw_trend, switch_trend
 
 
