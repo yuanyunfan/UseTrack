@@ -257,7 +257,7 @@ class MergedDB(UseTrackDB):
         """Get merged activity summary from local + remote DBs."""
         local = await super().get_activity_summary(period)
         start, end = self._parse_period(period)
-        start_date, end_date = start[:10], end[:10]
+        start_date, end_date = self._dates_from_period(period)
 
         remote_dbs = self._find_remote_dbs(start_date, end_date)
         if not remote_dbs:
@@ -478,7 +478,7 @@ class MergedDB(UseTrackDB):
         """Get merged output metrics."""
         local = await super().get_output_metrics(period)
         start, end = self._parse_period(period)
-        start_date, end_date = start[:10], end[:10]
+        start_date, end_date = self._dates_from_period(period)
 
         remote_dbs = self._find_remote_dbs(start_date, end_date)
         if not remote_dbs:
