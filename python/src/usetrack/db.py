@@ -445,13 +445,15 @@ class UseTrackDB:
     # --- Internal helpers ---
 
     async def _fetchone(self, sql: str, params: tuple = ()) -> dict | None:
-        assert self._db is not None, "Database not connected. Call connect() first."
+        if self._db is None:
+            raise RuntimeError("Database not connected. Call connect() first.")
         async with self._db.execute(sql, params) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None
 
     async def _fetchall(self, sql: str, params: tuple = ()) -> list[dict]:
-        assert self._db is not None, "Database not connected. Call connect() first."
+        if self._db is None:
+            raise RuntimeError("Database not connected. Call connect() first.")
         async with self._db.execute(sql, params) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
