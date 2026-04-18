@@ -1,5 +1,6 @@
 """UseTrack database layer — async SQLite read operations."""
 
+import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -288,7 +289,7 @@ class UseTrackDB:
                 (sanitized, limit),
             )
             return [dict(r) for r in rows]
-        except Exception:
+        except sqlite3.OperationalError:
             # FTS5 syntax error (e.g. bare operators like "OR AND NOT")
             return []
 
