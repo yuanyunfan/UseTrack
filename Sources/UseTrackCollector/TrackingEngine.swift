@@ -143,12 +143,14 @@ class TrackingEngine {
             windowWatcher.stop()
             inputWatcher.stop()
             mouseTracker.stop()
-            // AppWatcher 和 AFKWatcher 保持（检测解锁）
+            afkWatcher.stop()
+            // AppWatcher 保持（NSWorkspace 通知在解锁后自动恢复）
 
         case (.locked, .active):
             windowWatcher.start()
             inputWatcher.start()
             mouseTracker.start()
+            afkWatcher.start()
 
         // ---- 睡眠 ----
         case (_, .asleep):
