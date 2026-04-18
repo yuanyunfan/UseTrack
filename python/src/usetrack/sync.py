@@ -217,7 +217,8 @@ class MergedDB(UseTrackDB):
     def _dates_from_period(self, period: str) -> tuple[str, str]:
         """Extract date range (YYYY-MM-DD, YYYY-MM-DD) from period string."""
         start_ts, end_ts = self._parse_period(period)
-        return start_ts[:10], end_ts[:10]
+        end_date = date.fromisoformat(end_ts[:10]) - timedelta(days=1)
+        return start_ts[:10], end_date.isoformat()
 
     async def _query_remote_db(self, db_path: Path, sql: str, params: tuple) -> list[dict]:
         """Query a single remote .db file."""
