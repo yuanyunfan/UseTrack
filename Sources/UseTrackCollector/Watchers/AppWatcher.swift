@@ -111,6 +111,9 @@ class AppWatcher {
             return
         }
 
+        // Update lastAppName with the real name for accurate deduplication
+        lastAppName = appName
+
         // Check sensitive app blacklist
         if dbManager.isSensitiveApp(appName: appName) {
             let category = dbManager.getCategoryForApp(appName: appName)
@@ -152,6 +155,5 @@ class AppWatcher {
 
         // 5. Update state
         lastSwitchTime = time
-        lastAppName = appName
     }
 }
