@@ -488,7 +488,7 @@ class MergedDB(UseTrackDB):
             rows = await self._query_remote_db(
                 db_path,
                 """SELECT metric_type, SUM(value) as total FROM output_metrics
-                WHERE date >= ? AND date < ? GROUP BY metric_type""",
+                WHERE date >= ? AND date <= ? GROUP BY metric_type""",
                 (start_date, end_date),
             )
             for r in rows:
