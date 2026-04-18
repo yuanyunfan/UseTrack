@@ -289,6 +289,7 @@ class DatabaseManager {
 
     // MARK: - Cache Loading
 
+    /// Must be called within `dbQueue` to guarantee thread safety.
     private func loadSensitiveApps() throws {
         sensitiveApps = []
         let stmt = try db.prepare("SELECT app_name FROM sensitive_apps")
@@ -296,6 +297,13 @@ class DatabaseManager {
             if let appName = row[0] as? String {
                 sensitiveApps.insert(appName)
             }
+        }
+    }
+
+    /// Thread-safe reload of the sensitive apps cache.
+    func reloadSensitiveApps() throws {
+        try dbQueue.sync {
+            try loadSensitiveApps()
         }
     }
 
