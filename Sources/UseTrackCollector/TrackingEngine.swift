@@ -221,8 +221,15 @@ class TrackingEngine {
             forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            // 唤醒后可能还是锁屏状态，先转 active，锁屏通知会再修正
-            self?.transition(to: .active)
+            // 唤醒后检查屏幕是否仍处于锁定状态，避免短暂误启动 watchers
+            let isLocked: Bool = {
+                if let dict = CGSessionCopyCurrentDictionary() as? [String: Any],
+                   let locked = dict["CGSSessionScreenIsLocked"] as? Bool {
+                    return locked
+                }
+                return false
+            }()
+            self?.transition(to: isLocked ? .locked : .active)
         }
         observers.append(wakeObs)
     }
