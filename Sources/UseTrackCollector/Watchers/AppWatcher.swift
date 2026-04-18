@@ -113,13 +113,14 @@ class AppWatcher {
 
         // Check sensitive app blacklist
         if dbManager.isSensitiveApp(appName: appName) {
-            recordSwitch(appName: "[Redacted]", bundleId: bundleId, windowTitle: nil, at: now)
+            let category = dbManager.getCategoryForApp(appName: appName)
+            recordSwitch(appName: "[Redacted]", bundleId: bundleId, windowTitle: nil, at: now, categoryOverride: category)
         } else {
             recordSwitch(appName: appName, bundleId: bundleId, windowTitle: nil, at: now)
         }
     }
 
-    private func recordSwitch(appName: String, bundleId: String, windowTitle: String?, at time: Date) {
+    private func recordSwitch(appName: String, bundleId: String, windowTitle: String?, at time: Date, categoryOverride: String? = nil) {
         // 1. Backfill duration of previous event using its specific row ID
         if let lastTime = lastSwitchTime, let rowId = lastActivityRowId {
             let duration = time.timeIntervalSince(lastTime)
@@ -127,7 +128,7 @@ class AppWatcher {
         }
 
         // 2. Get category from app_rules
-        let category = dbManager.getCategoryForApp(appName: appName)
+        let category = categoryOverride ?? dbManager.getCategoryForApp(appName: appName)
 
         // 3. Create new activity event
         let event = ActivityEvent(
