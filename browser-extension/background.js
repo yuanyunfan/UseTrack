@@ -59,6 +59,9 @@ function recordUrl(url, title) {
             if (chrome.runtime.lastError) {
                 // Native host not available, store locally
                 storeLocally(message);
+            } else {
+                // Native host is available, flush any pending URLs
+                flushPendingUrls();
             }
         });
     } catch (e) {
@@ -93,11 +96,11 @@ const FLUSH_INTERVAL_MINUTES = 5;
 
 // Create alarm on install/startup
 chrome.runtime.onInstalled.addListener(() => {
-    chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES });
+    chrome.alarms.create(FLUSH_ALARM_NAME, { delayInMinutes: 1, periodInMinutes: FLUSH_INTERVAL_MINUTES });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-    chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES });
+    chrome.alarms.create(FLUSH_ALARM_NAME, { delayInMinutes: 1, periodInMinutes: FLUSH_INTERVAL_MINUTES });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
