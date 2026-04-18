@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 # Add project to path
-sys.path.insert(0, str(Path(__file__).parent / "python" / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python" / "src"))
 
 from usetrack.db import UseTrackDB
 
