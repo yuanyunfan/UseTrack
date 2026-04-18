@@ -76,11 +76,19 @@ def export_today(
             raise RuntimeError("No sync config found and no machine_id provided")
         machine_id = config["machine_id"]
 
+    # Validate machine_id to prevent path traversal
+    import re
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', machine_id):
+        raise ValueError(f"Invalid machine_id: {machine_id!r}. Only alphanumeric characters, hyphens, and underscores are allowed.")
+
     d = target_date or date.today()
     start_ts = f"{d.isoformat()}T00:00:00"
     end_ts = f"{(d + timedelta(days=1)).isoformat()}T00:00:00"
 
     out_dir = sync_dir / machine_id
+    # Verify resolved path is within sync_dir
+    if not out_dir.resolve().is_relative_to(sync_dir.resolve()):
+        raise ValueError(f"Resolved output directory {out_dir} escapes sync directory {sync_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{d.isoformat()}.db"
     tmp_path = out_dir / f"{d.isoformat()}.db.tmp"
