@@ -452,7 +452,9 @@ class DatabaseManager {
 
     /// 检查是否是敏感 App（使用内存缓存）
     func isSensitiveApp(appName: String) -> Bool {
-        sensitiveApps.contains(appName)
+        dbQueue.sync {
+            sensitiveApps.contains(appName)
+        }
     }
 
     /// 获取 App 的分类（使用内存缓存）
