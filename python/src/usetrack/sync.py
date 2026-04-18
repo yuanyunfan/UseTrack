@@ -207,17 +207,28 @@ class MergedDB(UseTrackDB):
         except ValueError:
             return []
 
+        resolved_sync_dir = self.sync_dir.resolve()
         for machine_dir in self.sync_dir.iterdir():
+            if machine_dir.is_symlink():
+                continue  # Skip symlinks to prevent path traversal
             if not machine_dir.is_dir():
                 continue
             if machine_dir.name == self.machine_id:
                 continue  # Skip own machine
+            # Verify machine_dir resolves within sync_dir
+            if not str(machine_dir.resolve()).startswith(str(resolved_sync_dir) + "/"):
+                continue
             # Check each date in range
             d = start_d
             while d <= end_d:
                 db_file = machine_dir / f"{d.isoformat()}.db"
+                if db_file.is_symlink():
+                    d += timedelta(days=1)
+                    continue  # Skip symlinked db files
                 if db_file.exists():
-                    result.append(db_file)
+                    # Verify db_file resolves within sync_dir
+                    if str(db_file.resolve()).startswith(str(resolved_sync_dir) + "/"):
+                        result.append(db_file)
                 d += timedelta(days=1)
 
         return result
