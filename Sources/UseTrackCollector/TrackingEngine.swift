@@ -221,15 +221,23 @@ class TrackingEngine {
             forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            // 唤醒后检查屏幕是否仍处于锁定状态，避免短暂误启动 watchers
-            let isLocked: Bool = {
-                if let dict = CGSessionCopyCurrentDictionary() as? [String: Any],
-                   let locked = dict["CGSSessionScreenIsLocked"] as? Bool {
-                    return locked
-                }
-                return false
-            }()
-            self?.transition(to: isLocked ? .locked : .active)
+            // Delay slightly after wake to let lock/unlock notifications settle,
+            // then query the actual screen lock state to avoid race conditions
+            // where wake and unlock notifications arrive in unpredictable order.
+            // See: Issue #78
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                guard let self = self else { return }
+                // If another notification already moved us out of .asleep, don't override
+                guard self.state == .asleep else { return }
+                let isLocked: Bool = {
+                    if let dict = CGSessionCopyCurrentDictionary() as? [String: Any],
+                       let locked = dict["CGSSessionScreenIsLocked"] as? Bool {
+                        return locked
+                    }
+                    return false
+                }()
+                self.transition(to: isLocked ? .locked : .active)
+            }
         }
         observers.append(wakeObs)
     }
