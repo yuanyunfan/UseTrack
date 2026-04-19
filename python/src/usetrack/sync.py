@@ -477,7 +477,6 @@ class MergedDB(UseTrackDB):
     async def get_output_metrics(self, period: str = "today") -> dict:
         """Get merged output metrics."""
         local = await super().get_output_metrics(period)
-        start, end = self._parse_period(period)
         start_date, end_date = self._dates_from_period(period)
 
         remote_dbs = self._find_remote_dbs(start_date, end_date)
