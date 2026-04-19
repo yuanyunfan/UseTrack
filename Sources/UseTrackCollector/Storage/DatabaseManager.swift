@@ -67,12 +67,20 @@ class DatabaseManager {
         try db.execute("PRAGMA busy_timeout=5000")
         try db.execute("PRAGMA foreign_keys=ON")
 
-        // 创建表结构
-        try createTables()
-
-        // 加载缓存
-        try loadSensitiveApps()
-        try loadAppRules()
+        // 创建表结构并加载缓存（在 dbQueue 中执行以保证线程安全）
+        var initError: Error?
+        dbQueue.sync {
+            do {
+                try createTables()
+                try loadSensitiveApps()
+                try loadAppRules()
+            } catch {
+                initError = error
+            }
+        }
+        if let error = initError {
+            throw error
+        }
     }
 
     // MARK: - Schema Creation
