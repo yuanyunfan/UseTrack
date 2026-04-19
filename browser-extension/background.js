@@ -116,13 +116,11 @@ async function flushPendingUrls() {
 
     const remaining = [];
 
-    for (const message of pending) {
-        const sent = await sendNativeMessage(message);
+    for (let i = 0; i < pending.length; i++) {
+        const sent = await sendNativeMessage(pending[i]);
         if (!sent) {
             // Native host still unavailable, keep remaining messages and stop
-            remaining.push(message);
-            // Don't try further messages if the host is down
-            remaining.push(...pending.slice(pending.indexOf(message) + 1));
+            remaining.push(...pending.slice(i));
             break;
         }
     }
