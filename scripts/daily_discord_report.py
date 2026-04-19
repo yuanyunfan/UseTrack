@@ -198,9 +198,15 @@ def build_discord_payload(summary, focus, distraction, output, dw_trend, switch_
 
 
 def send_to_discord(payload: dict):
+    if not WEBHOOK_URL or not WEBHOOK_URL.strip():
+        print("❌ WEBHOOK_URL 为空，无法发送")
+        return False
+    if not WEBHOOK_URL.strip().startswith("https://discord.com/api/webhooks/"):
+        print("❌ WEBHOOK_URL 格式无效，必须以 'https://discord.com/api/webhooks/' 开头")
+        return False
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        WEBHOOK_URL,
+        WEBHOOK_URL.strip(),
         data=data,
         headers={
             "Content-Type": "application/json",
