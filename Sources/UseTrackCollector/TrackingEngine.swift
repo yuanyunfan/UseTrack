@@ -138,6 +138,13 @@ class TrackingEngine {
             windowWatcher.start()
 
         // ---- 锁屏 ----
+        case (.idle, .locked):
+            // Already stopped windowWatcher in idle transition; stop remaining watchers
+            inputWatcher.stop()
+            mouseTracker.stop()
+            afkWatcher.stop()
+            // Note: idle session stays open; will be closed when transitioning back to .active
+
         case (_, .locked):
             // 锁屏时暂停所有昂贵的轮询
             windowWatcher.stop()
@@ -147,12 +154,20 @@ class TrackingEngine {
             // AppWatcher 保持（NSWorkspace 通知在解锁后自动恢复）
 
         case (.locked, .active):
+            // If user was idle before locking, close the stale idle session (Issue #101)
+            afkWatcher.forceEndIdle()
             windowWatcher.start()
             inputWatcher.start()
             mouseTracker.start()
             afkWatcher.start()
 
         // ---- 睡眠 ----
+        case (.idle, .asleep):
+            // Already stopped windowWatcher in idle transition; stop remaining watchers
+            inputWatcher.stop()
+            mouseTracker.stop()
+            afkWatcher.stop()
+
         case (_, .asleep):
             // 系统睡眠：全部暂停
             windowWatcher.stop()
@@ -162,6 +177,8 @@ class TrackingEngine {
             // AppWatcher 保持（NSWorkspace 通知在唤醒后自动恢复）
 
         case (.asleep, .active):
+            // If user was idle before sleep, close the stale idle session (Issue #101)
+            afkWatcher.forceEndIdle()
             windowWatcher.start()
             inputWatcher.start()
             mouseTracker.start()

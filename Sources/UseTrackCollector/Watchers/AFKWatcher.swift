@@ -47,6 +47,37 @@ class AFKWatcher {
         timer = nil
     }
 
+    /// Force-end an active idle session, writing idle_end to DB and resetting internal state.
+    /// Called by TrackingEngine when resuming from .asleep/.locked to .active,
+    /// to ensure no stale idle session is left unclosed (see Issue #101).
+    func forceEndIdle() {
+        guard isIdle else { return }
+        let now = Date()
+        let idleDuration = idleStartTime.map { now.timeIntervalSince($0) } ?? 0
+
+        isIdle = false
+
+        let event = ActivityEvent(
+            id: nil,
+            timestamp: now,
+            activity: "idle_end",
+            appName: nil,
+            windowTitle: nil,
+            durationSeconds: idleDuration,
+            meta: ["idle_duration_s": String(Int(idleDuration)), "source": "force_end"],
+            category: nil
+        )
+
+        do {
+            let _ = try dbManager.insertActivity(event)
+            print("[AFKWatcher] Force-ended idle session (was idle for \(Int(idleDuration))s)")
+        } catch {
+            print("[AFKWatcher] Error recording forced idle_end: \(error)")
+        }
+
+        idleStartTime = nil
+    }
+
     private func checkIdleState() {
         let idleSeconds = getIdleTime()
 
