@@ -116,8 +116,7 @@ class AppWatcher {
 
         // Check sensitive app blacklist
         if dbManager.isSensitiveApp(appName: appName) {
-            let category = dbManager.getCategoryForApp(appName: appName)
-            recordSwitch(appName: "[Redacted]", bundleId: bundleId, windowTitle: nil, at: now, categoryOverride: category)
+            recordSwitch(appName: "[Redacted]", bundleId: bundleId, windowTitle: nil, at: now, categoryOverride: "sensitive")
         } else {
             recordSwitch(appName: appName, bundleId: bundleId, windowTitle: nil, at: now)
         }
