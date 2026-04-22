@@ -12,19 +12,29 @@ import SQLite
 class OpenCodeSessionStore {
     private let dbPath: String
 
-    // MARK: - Scan Cache
+    // MARK: - Scan Cache (NSLock 保护并发读写)
     private var scanCache: [String: [String: SessionAcc]] = [:]
+    private let cacheLock = NSLock()
 
     private func cachedScan(from start: String, to end: String) -> [String: SessionAcc] {
         let key = "\(start)|\(end)"
-        if let result = scanCache[key] { return result }
+        cacheLock.lock()
+        if let result = scanCache[key] {
+            cacheLock.unlock()
+            return result
+        }
+        cacheLock.unlock()
         let result = scanSessions(from: start, to: end)
+        cacheLock.lock()
         scanCache[key] = result
+        cacheLock.unlock()
         return result
     }
 
     func invalidateCache() {
+        cacheLock.lock()
         scanCache.removeAll()
+        cacheLock.unlock()
     }
 
     init() {

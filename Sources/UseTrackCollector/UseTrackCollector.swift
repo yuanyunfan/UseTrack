@@ -28,11 +28,23 @@ struct UseTrackCollector: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Run in verbose mode")
     var verbose: Bool = false
 
+    @Flag(name: .long, help: "Backfill AI sessions from all sources, then exit (re-scans everything from scratch)")
+    var backfillAi: Bool = false
+
     func run() throws {
         let expandedPath = NSString(string: dbPath).expandingTildeInPath
         let db = try DatabaseManager(dbPath: expandedPath)
 
         if verbose { print("Database initialized at: \(expandedPath)") }
+
+        // --- One-shot: --backfill-ai ---
+        if backfillAi {
+            print("Backfilling AI sessions (full rescan)...")
+            let watcher = AISessionWatcher(dbManager: db)
+            watcher.runOnce(reset: true)
+            print("✓ Backfill complete.")
+            return
+        }
 
         // --- Create Watchers ---
 
@@ -75,6 +87,10 @@ struct UseTrackCollector: ParsableCommand {
         let obsidianWatcher = ObsidianWatcher(dbManager: db, vaultPath: expandedVaultPath)
         obsidianWatcher.start()
 
+        // AI Session Watcher: 增量扫描 4 个数据源到 ai_sessions 表
+        let aiSessionWatcher = AISessionWatcher(dbManager: db)
+        aiSessionWatcher.start()
+
         // --- TrackingEngine: 统一状态机管理核心 Watcher ---
 
         let engine = TrackingEngine(
@@ -108,6 +124,7 @@ struct UseTrackCollector: ParsableCommand {
         print("  ✓ Display Watcher — screen sleep/wake detection")
         print("  ✓ Git Watcher — scanning repos for commits (5min interval)")
         print("  ✓ Obsidian Watcher — tracking note word counts (5min interval)")
+        print("  ✓ AI Session Watcher — incremental scan of Claude/OpenCode/Hermes/OpenClaw (5min interval)")
         print("  ✓ TrackingEngine — state machine (active/idle/locked/asleep)")
 
         if verbose {
@@ -119,7 +136,7 @@ struct UseTrackCollector: ParsableCommand {
             engine, appWatcher, windowWatcher, afkWatcher,
             screenDetector, mouseTracker, attentionScorer,
             inputWatcher, gitWatcher, obsidianWatcher,
-            displayWatcher,
+            displayWatcher, aiSessionWatcher,
         ]
         keepAliveTimers = [snapshotTimer]
 
@@ -138,6 +155,7 @@ struct UseTrackCollector: ParsableCommand {
                 if let e = obj as? TrackingEngine { e.stop() }
                 if let w = obj as? GitWatcher { w.stop() }
                 if let w = obj as? ObsidianWatcher { w.stop() }
+                if let w = obj as? AISessionWatcher { w.stop() }
             }
             for t in keepAliveTimers { t.invalidate() }
             print("Cleanup complete. Goodbye.")
@@ -152,6 +170,7 @@ struct UseTrackCollector: ParsableCommand {
                 if let e = obj as? TrackingEngine { e.stop() }
                 if let w = obj as? GitWatcher { w.stop() }
                 if let w = obj as? ObsidianWatcher { w.stop() }
+                if let w = obj as? AISessionWatcher { w.stop() }
             }
             for t in keepAliveTimers { t.invalidate() }
             print("Cleanup complete. Goodbye.")

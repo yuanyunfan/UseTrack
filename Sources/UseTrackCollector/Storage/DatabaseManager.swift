@@ -293,6 +293,52 @@ class DatabaseManager {
             GROUP BY substr(ts, 1, 10), strftime('%H', ts)
             ORDER BY date DESC, hour
         """)
+
+        // ---- AI Sessions: 聚合 Claude/OpenCode/Hermes/OpenClaw 的会话数据 ----
+        try db.execute("""
+            CREATE TABLE IF NOT EXISTS ai_sessions (
+                session_id          TEXT NOT NULL,
+                source              TEXT NOT NULL,
+                project             TEXT,
+                started_at          TEXT,
+                ended_at            TEXT,
+                input_tokens        INTEGER NOT NULL DEFAULT 0,
+                output_tokens       INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+                user_messages       INTEGER NOT NULL DEFAULT 0,
+                assistant_turns     INTEGER NOT NULL DEFAULT 0,
+                tool_calls          INTEGER NOT NULL DEFAULT 0,
+                model_primary       TEXT,
+                topic               TEXT,
+                updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (source, session_id)
+            )
+        """)
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_sessions_started ON ai_sessions(started_at)")
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_sessions_project ON ai_sessions(project)")
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_sessions_source_started ON ai_sessions(source, started_at)")
+
+        try db.execute("""
+            CREATE TABLE IF NOT EXISTS ai_session_files (
+                file_path           TEXT PRIMARY KEY,
+                source              TEXT NOT NULL,
+                mtime               REAL NOT NULL,
+                last_parsed_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                sessions_found      INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_session_files_source ON ai_session_files(source)")
+
+        try db.execute("""
+            CREATE TABLE IF NOT EXISTS ai_tool_calls (
+                session_id          TEXT NOT NULL,
+                source              TEXT NOT NULL,
+                tool_name           TEXT NOT NULL,
+                call_count          INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (source, session_id, tool_name)
+            )
+        """)
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_tool_calls_tool ON ai_tool_calls(tool_name)")
     }
 
     // MARK: - Cache Loading
@@ -517,6 +563,104 @@ class DatabaseManager {
                 "DELETE FROM window_snapshot WHERE ts < ?",
                 snapshotCutoff
             )
+        }
+    }
+
+    // MARK: - AI Sessions
+
+    /// 已知文件的 mtime，用于增量扫描时判断是否需要重新解析
+    func getAISessionFileMTime(filePath: String) -> Double? {
+        return dbQueue.sync {
+            do {
+                for row in try db.prepare("SELECT mtime FROM ai_session_files WHERE file_path = ?", [filePath]) {
+                    return row[0] as? Double
+                }
+            } catch {
+                print("[DB] getAISessionFileMTime error: \(error)")
+            }
+            return nil
+        }
+    }
+
+    /// 标记文件已解析（mtime + sessionsFound）
+    func markAISessionFileScanned(filePath: String, source: String, mtime: Double, sessionsFound: Int) throws {
+        try dbQueue.sync {
+            try db.run("""
+                INSERT INTO ai_session_files (file_path, source, mtime, last_parsed_at, sessions_found)
+                VALUES (?, ?, ?, datetime('now'), ?)
+                ON CONFLICT(file_path) DO UPDATE SET
+                    mtime = excluded.mtime,
+                    last_parsed_at = excluded.last_parsed_at,
+                    sessions_found = excluded.sessions_found
+                """, filePath, source, mtime, Int64(sessionsFound))
+        }
+    }
+
+    /// 一个 session 的聚合记录（用于 UPSERT，token 是累加而非覆盖，配合每文件全量重解析使用）
+    struct AISessionRecord {
+        let sessionId: String
+        let source: String
+        let project: String?
+        let startedAt: String?
+        let endedAt: String?
+        let inputTokens: Int64
+        let outputTokens: Int64
+        let cacheReadTokens: Int64
+        let userMessages: Int
+        let assistantTurns: Int
+        let toolCalls: Int
+        let modelPrimary: String?
+        let topic: String?
+        let toolBreakdown: [String: Int]  // tool_name → call_count
+    }
+
+    /// UPSERT 一个 session：直接覆盖（解析时会把整个文件 / DB 行的统计算清楚再传进来）
+    func upsertAISession(_ rec: AISessionRecord) throws {
+        try dbQueue.sync {
+            try db.run("""
+                INSERT INTO ai_sessions (
+                    session_id, source, project, started_at, ended_at,
+                    input_tokens, output_tokens, cache_read_tokens,
+                    user_messages, assistant_turns, tool_calls,
+                    model_primary, topic, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(source, session_id) DO UPDATE SET
+                    project = excluded.project,
+                    started_at = COALESCE(excluded.started_at, ai_sessions.started_at),
+                    ended_at = COALESCE(excluded.ended_at, ai_sessions.ended_at),
+                    input_tokens = excluded.input_tokens,
+                    output_tokens = excluded.output_tokens,
+                    cache_read_tokens = excluded.cache_read_tokens,
+                    user_messages = excluded.user_messages,
+                    assistant_turns = excluded.assistant_turns,
+                    tool_calls = excluded.tool_calls,
+                    model_primary = COALESCE(excluded.model_primary, ai_sessions.model_primary),
+                    topic = COALESCE(excluded.topic, ai_sessions.topic),
+                    updated_at = excluded.updated_at
+                """,
+                rec.sessionId, rec.source, rec.project, rec.startedAt, rec.endedAt,
+                rec.inputTokens, rec.outputTokens, rec.cacheReadTokens,
+                Int64(rec.userMessages), Int64(rec.assistantTurns), Int64(rec.toolCalls),
+                rec.modelPrimary, rec.topic
+            )
+
+            // 工具调用：先删后写（保证一致性）
+            try db.run("DELETE FROM ai_tool_calls WHERE source = ? AND session_id = ?", rec.source, rec.sessionId)
+            for (tool, count) in rec.toolBreakdown where count > 0 {
+                try db.run("""
+                    INSERT INTO ai_tool_calls (session_id, source, tool_name, call_count)
+                    VALUES (?, ?, ?, ?)
+                    """, rec.sessionId, rec.source, tool, Int64(count))
+            }
+        }
+    }
+
+    /// 删除整个 source 的全部数据（仅用于 --backfill-ai 重置场景）
+    func resetAISource(_ source: String) throws {
+        try dbQueue.sync {
+            try db.run("DELETE FROM ai_tool_calls WHERE source = ?", source)
+            try db.run("DELETE FROM ai_sessions WHERE source = ?", source)
+            try db.run("DELETE FROM ai_session_files WHERE source = ?", source)
         }
     }
 }

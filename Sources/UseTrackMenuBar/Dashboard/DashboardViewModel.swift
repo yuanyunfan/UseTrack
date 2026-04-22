@@ -40,11 +40,8 @@ class DashboardViewModel: ObservableObject {
     @Published var dbSizeBytes: Int64 = 0
 
     // MARK: - AI Sessions Page
+    // 数据源已收口到 ai_sessions 表（由 Collector 增量同步），UI 只查 SQL，无需 *SessionStore。
 
-    private let claudeStore = ClaudeSessionStore()
-    private let openCodeStore = OpenCodeSessionStore()
-    private let hermesStore = HermesSessionStore()
-    private let openClawStore = OpenClawSessionStore()
     @Published var aiKPI = AISessionKPI(
         sessions: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0,
         toolCalls: 0, activeProjects: 0, userMessages: 0, assistantMessages: 0, topProjects: []
@@ -200,141 +197,49 @@ class DashboardViewModel: ObservableObject {
 
     // MARK: - AI Sessions
 
-    // MARK: - KPI Aggregation Helpers
+    // MARK: - AI Sessions: 加载
 
-    private func mergeKPIs(_ kpis: [AISessionKPI]) -> AISessionKPI {
-        var sessions = 0, toolCalls = 0, activeProjects = 0, userMsgs = 0, assistantMsgs = 0
-        var totalInput: Int64 = 0, totalOutput: Int64 = 0, totalCache: Int64 = 0
-        var allProjects: [String] = []
-
-        for k in kpis {
-            sessions += k.sessions
-            totalInput += k.totalInputTokens
-            totalOutput += k.totalOutputTokens
-            totalCache += k.totalCacheReadTokens
-            toolCalls += k.toolCalls
-            activeProjects += k.activeProjects
-            userMsgs += k.userMessages
-            assistantMsgs += k.assistantMessages
-            allProjects.append(contentsOf: k.topProjects)
-        }
-
-        return AISessionKPI(
-            sessions: sessions,
-            totalInputTokens: totalInput, totalOutputTokens: totalOutput, totalCacheReadTokens: totalCache,
-            toolCalls: toolCalls, activeProjects: activeProjects,
-            userMessages: userMsgs, assistantMessages: assistantMsgs,
-            topProjects: Array(allProjects.prefix(3))
-        )
-    }
-
-    private func mergeTrends(_ trendArrays: [[AISessionDailyTrend]]) -> [AISessionDailyTrend] {
-        var byDate: [String: AISessionDailyTrend] = [:]
-
-        for trends in trendArrays {
-            for t in trends {
-                if let existing = byDate[t.date] {
-                    byDate[t.date] = AISessionDailyTrend(
-                        date: t.date,
-                        inputTokensK: existing.inputTokensK + t.inputTokensK,
-                        outputTokensK: existing.outputTokensK + t.outputTokensK,
-                        cacheReadTokensK: existing.cacheReadTokensK + t.cacheReadTokensK,
-                        sessions: existing.sessions + t.sessions,
-                        toolCalls: existing.toolCalls + t.toolCalls
-                    )
-                } else {
-                    byDate[t.date] = t
-                }
-            }
-        }
-
-        return byDate.values.sorted { $0.date < $1.date }
-    }
+    private let aiLoadLock = NSLock()
+    private var aiLoadInFlight = false
 
     func loadAISessions(days: Int = 7) {
+        // 去重：避免同时多次触发（onAppear/picker 切换）
+        aiLoadLock.lock()
+        if aiLoadInFlight {
+            aiLoadLock.unlock()
+            return
+        }
+        aiLoadInFlight = true
+        aiLoadLock.unlock()
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd"
-            let todayStr = dateFormatter.string(from: Date())
-
-            // Invalidate caches so fresh data is loaded
-            self.claudeStore.invalidateCache()
-            self.openCodeStore.invalidateCache()
-            self.hermesStore.invalidateCache()
-            self.openClawStore.invalidateCache()
-
-            // Parallel scan: each store runs on its own queue
-            var claudeKPI: AISessionKPI!
-            var openCodeKPI: AISessionKPI!
-            var hermesKPI: AISessionKPI!
-            var openClawKPI: AISessionKPI!
-            var claudeTrends: [AISessionDailyTrend] = []
-            var openCodeTrends: [AISessionDailyTrend] = []
-            var hermesTrends: [AISessionDailyTrend] = []
-            var openClawTrends: [AISessionDailyTrend] = []
-            var claudeDetails: [AISessionDetail] = []
-            var openCodeDetails: [AISessionDetail] = []
-            var hermesDetails: [AISessionDetail] = []
-            var openClawDetails: [AISessionDetail] = []
-            var projects: [AIProjectUsage] = []
-            var tools: [AIToolUsage] = []
-
-            let group = DispatchGroup()
-
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                claudeKPI = self.claudeStore.getTodayKPI(for: todayStr)
-                claudeTrends = days == 1
-                    ? self.claudeStore.getHourlyTrends()
-                    : self.claudeStore.getDailyTrends(days: days)
-                projects = self.claudeStore.getProjectUsage(days: days)
-                tools = self.claudeStore.getToolUsage(days: days)
-                claudeDetails = self.claudeStore.getSessionDetails(for: todayStr)
-                group.leave()
+            defer {
+                self.aiLoadLock.lock()
+                self.aiLoadInFlight = false
+                self.aiLoadLock.unlock()
             }
 
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                openCodeKPI = self.openCodeStore.getTodayKPI(for: todayStr)
-                openCodeTrends = days == 1
-                    ? self.openCodeStore.getHourlyTrends()
-                    : self.openCodeStore.getDailyTrends(days: days)
-                openCodeDetails = self.openCodeStore.getSessionDetails(for: todayStr)
-                group.leave()
+            let date = Date()
+            let kpi: AISessionKPI
+            let trends: [AISessionDailyTrend]
+            let projects: [AIProjectUsage]
+            let tools: [AIToolUsage]
+            let sources: [(source: String, totalTokens: Int64, sessions: Int)]
+            let details: [AISessionDetail]
+            do {
+                kpi = try self.store.getAISessionKPI(for: date)
+                trends = days == 1
+                    ? try self.store.getAIHourlyTrends(for: date)
+                    : try self.store.getAIDailyTrends(for: date, days: days)
+                projects = try self.store.getAIProjectUsage(for: date, days: days)
+                tools = try self.store.getAIToolUsage(for: date, days: days)
+                sources = try self.store.getAISourceUsage(for: date, days: days)
+                details = try self.store.getAISessionDetails(for: date)
+            } catch {
+                print("[loadAISessions] DB error: \(error)")
+                return
             }
-
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                hermesKPI = self.hermesStore.getTodayKPI(for: todayStr)
-                hermesTrends = days == 1
-                    ? self.hermesStore.getHourlyTrends()
-                    : self.hermesStore.getDailyTrends(days: days)
-                hermesDetails = self.hermesStore.getSessionDetails(for: todayStr)
-                group.leave()
-            }
-
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                openClawKPI = self.openClawStore.getTodayKPI(for: todayStr)
-                openClawTrends = days == 1
-                    ? self.openClawStore.getHourlyTrends()
-                    : self.openClawStore.getDailyTrends(days: days)
-                openClawDetails = self.openClawStore.getSessionDetails(for: todayStr)
-                group.leave()
-            }
-
-            group.wait()
-
-            let kpi = self.mergeKPIs([claudeKPI, openCodeKPI, hermesKPI, openClawKPI])
-            let trends = self.mergeTrends([claudeTrends, openCodeTrends, hermesTrends, openClawTrends])
-
-            var details = claudeDetails
-            details.append(contentsOf: openCodeDetails)
-            details.append(contentsOf: hermesDetails)
-            details.append(contentsOf: openClawDetails)
-            details.sort { $0.totalTokens > $1.totalTokens }
 
             // Build chart JSON
             let trendsJSON = trends.map {
@@ -351,7 +256,12 @@ class DashboardViewModel: ObservableObject {
                 return "{\"name\":\"\(name)\",\"count\":\($0.count)}"
             }.joined(separator: ",")
 
-            let chartJSON = "{\"trends\":[\(trendsJSON)],\"projects\":[\(projectsJSON)],\"tools\":[\(toolsJSON)]}"
+            let sourcesJSON = sources.map {
+                let name = $0.source.replacingOccurrences(of: "\"", with: "\\\"")
+                return "{\"name\":\"\(name)\",\"tokens\":\($0.totalTokens),\"sessions\":\($0.sessions)}"
+            }.joined(separator: ",")
+
+            let chartJSON = "{\"trends\":[\(trendsJSON)],\"projects\":[\(projectsJSON)],\"tools\":[\(toolsJSON)],\"sources\":[\(sourcesJSON)]}"
 
             DispatchQueue.main.async {
                 self.aiKPI = kpi

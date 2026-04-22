@@ -44,7 +44,22 @@ body {
     var toolChart = echarts.init(document.getElementById('toolPie'));
 
     var projectColors = ['#34C759','#007AFF','#FF9F0A','#AF52DE','#FF3B30','#5AC8FA','#FFD60A','#8E8E93'];
-    var toolColors = ['#FF9F0A','#007AFF','#34C759','#5AC8FA','#AF52DE','#FF3B30','#FFD60A','#8E8E93','#30D158','#64D2FF'];
+    // Per-source colors (Claude/Codex/Hermes/OpenClaw/OpenCode 各占一色，方便辨识)
+    var sourceColors = {
+        'Claude Code': '#FF9F0A',
+        'Codex':       '#34C759',
+        'Hermes':      '#AF52DE',
+        'OpenClaw':    '#007AFF',
+        'OpenCode':    '#5AC8FA'
+    };
+    var fallbackColors = ['#FF3B30','#FFD60A','#8E8E93','#30D158','#64D2FF'];
+
+    function fmtTokens(n) {
+        if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+        if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+        return String(n);
+    }
 
     function tooltip() {
         return { backgroundColor: T.bg, borderColor: T.border, textStyle: { color: T.text, fontSize: 12 } };
@@ -55,13 +70,20 @@ body {
         if (data.trends) renderTokenTrend(data.trends);
         if (data.trends) renderSessionTrend(data.trends);
         if (data.projects) renderProjectBar(data.projects);
-        if (data.tools) renderToolPie(data.tools);
+        // 优先用 sources 渲染 AI 工具占比饼图；老数据无 sources 时退化用 tools
+        if (data.sources && data.sources.length > 0) renderSourcePie(data.sources);
+        else if (data.tools) renderToolPie(data.tools);
+    }
+
+    // 1 天视图传 "HH:00"（含冒号）；多天视图传 "YYYY-MM-DD"
+    function fmtAxis(d) {
+        return d.indexOf(':') >= 0 ? d : d.substring(5);
     }
 
     function fmtK(n) { return Math.round(n).toLocaleString() + 'K'; }
 
     function renderTokenTrend(trends) {
-        var dates = trends.map(function(d) { return d.date.substring(5); });
+        var dates = trends.map(function(d) { return fmtAxis(d.date); });
         tokenChart.setOption({
             tooltip: Object.assign({ trigger: 'axis' }, tooltip(), {
                 formatter: function(p) {
@@ -90,7 +112,7 @@ body {
     }
 
     function renderSessionTrend(trends) {
-        var dates = trends.map(function(d) { return d.date.substring(5); });
+        var dates = trends.map(function(d) { return fmtAxis(d.date); });
         sessionChart.setOption({
             tooltip: Object.assign({ trigger: 'axis' }, tooltip()),
             legend: { data: ['Sessions', 'Tool 调用'], top: 5, right: 10, textStyle: { color: T.sub, fontSize: 10 } },
@@ -141,7 +163,37 @@ body {
                 type: 'pie', radius: ['35%', '65%'], center: ['50%', '50%'],
                 label: { color: T.text, fontSize: 10, formatter: '{b}\n{d}%' },
                 data: top.map(function(d, i) {
-                    return { value: d.count, name: d.name, itemStyle: { color: toolColors[i % toolColors.length] } };
+                    return { value: d.count, name: d.name, itemStyle: { color: fallbackColors[i % fallbackColors.length] } };
+                }),
+                emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.2)' } },
+                itemStyle: { borderRadius: 5, borderColor: T.bg, borderWidth: 2 }
+            }]
+        }, true);
+    }
+
+    // 新版：按 AI 工具来源（Claude Code / Codex / Hermes / OpenClaw / OpenCode）展示 token 占比
+    // tooltip 同时显示 token 数与百分比，并附 session 数
+    function renderSourcePie(sources) {
+        toolChart.setOption({
+            title: {
+                text: 'AI 工具占比', left: 'center', top: 4,
+                textStyle: { color: T.text, fontSize: 12, fontWeight: 'normal' }
+            },
+            tooltip: Object.assign({ trigger: 'item' }, tooltip(), {
+                formatter: function(p) {
+                    return '<b>' + p.name + '</b><br/>' +
+                           'Tokens: ' + p.value.toLocaleString() + ' (' + fmtTokens(p.value) + ')<br/>' +
+                           '占比: ' + p.percent.toFixed(1) + '%<br/>' +
+                           'Sessions: ' + (p.data.sessions || 0);
+                }
+            }),
+            series: [{
+                type: 'pie', radius: ['38%', '68%'], center: ['50%', '54%'],
+                label: { color: T.text, fontSize: 11,
+                         formatter: function(p) { return p.name + '\n' + fmtTokens(p.value) + ' · ' + p.percent.toFixed(1) + '%'; } },
+                data: sources.map(function(d, i) {
+                    var color = sourceColors[d.name] || fallbackColors[i % fallbackColors.length];
+                    return { value: d.tokens, name: d.name, sessions: d.sessions, itemStyle: { color: color } };
                 }),
                 emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.2)' } },
                 itemStyle: { borderRadius: 5, borderColor: T.bg, borderWidth: 2 }

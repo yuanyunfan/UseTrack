@@ -75,19 +75,29 @@ struct AISessionDetail {
 class ClaudeSessionStore {
     private let basePath: String
 
-    // MARK: - Scan Cache (eliminates repeated file I/O within one load cycle)
+    // MARK: - Scan Cache (NSLock 保护并发读写，见 HermesSessionStore 同款修复)
     private var scanCache: [String: [String: SessionAccumulator]] = [:]
+    private let cacheLock = NSLock()
 
     private func cachedScan(from start: String, to end: String) -> [String: SessionAccumulator] {
         let key = "\(start)|\(end)"
-        if let result = scanCache[key] { return result }
+        cacheLock.lock()
+        if let result = scanCache[key] {
+            cacheLock.unlock()
+            return result
+        }
+        cacheLock.unlock()
         let result = scanSessions(from: start, to: end)
+        cacheLock.lock()
         scanCache[key] = result
+        cacheLock.unlock()
         return result
     }
 
     func invalidateCache() {
+        cacheLock.lock()
         scanCache.removeAll()
+        cacheLock.unlock()
     }
 
     /// ISO8601 formatters for parsing timestamps

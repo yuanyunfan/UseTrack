@@ -750,4 +750,291 @@ class DashboardDataStore {
         let attrs = try FileManager.default.attributesOfItem(atPath: dbPath)
         return attrs[.size] as? Int64 ?? 0
     }
+
+    // MARK: - AI Sessions (从 ai_sessions / ai_tool_calls 表查询)
+
+    /// 把本地日期的"今天"转换为 UTC ISO 时间窗口 [startUTC, endUTC)，用于过滤 ai_sessions.started_at（UTC ISO 字符串）
+    private func dayWindowUTC(for date: Date, daysBack: Int = 0) -> (start: String, end: String) {
+        let cal = Calendar.current
+        let startOfToday = cal.startOfDay(for: date)
+        let startOfWindow = cal.date(byAdding: .day, value: -daysBack, to: startOfToday) ?? startOfToday
+        let endOfWindow = cal.date(byAdding: .day, value: 1, to: startOfToday) ?? date
+        return (Self.isoOutFmt.string(from: startOfWindow), Self.isoOutFmt.string(from: endOfWindow))
+    }
+
+    private static let isoOutFmt: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoInFmt: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoInFmtNoFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static let timeOnlyFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
+    private func parseISO(_ s: String?) -> Date? {
+        guard let s = s else { return nil }
+        return Self.isoInFmt.date(from: s) ?? Self.isoInFmtNoFrac.date(from: s)
+    }
+
+    private func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "claude":   return "Claude Code"
+        case "opencode": return "OpenCode"
+        case "hermes":   return "Hermes"
+        case "openclaw": return "OpenClaw"
+        case "codex":    return "Codex"
+        default:         return source
+        }
+    }
+
+    /// "今日"（实际是本地日期 date 当天）的 KPI 聚合
+    func getAISessionKPI(for date: Date) throws -> AISessionKPI {
+        let db = try connect()
+        let (startUTC, endUTC) = dayWindowUTC(for: date)
+
+        var sessions = 0, userMsgs = 0, assistantMsgs = 0, toolCalls = 0
+        var totalIn: Int64 = 0, totalOut: Int64 = 0, totalCache: Int64 = 0
+        var projects = Set<String>()
+        var projectTokens: [String: Int64] = [:]
+
+        for row in try db.prepare("""
+            SELECT input_tokens, output_tokens, cache_read_tokens,
+                   user_messages, assistant_turns, tool_calls,
+                   COALESCE(project, '(unknown)')
+            FROM ai_sessions
+            WHERE started_at >= ? AND started_at < ?
+            """, startUTC, endUTC) {
+            let inT = (row[0] as? Int64) ?? 0
+            let outT = (row[1] as? Int64) ?? 0
+            let cacheT = (row[2] as? Int64) ?? 0
+            let uM = Int((row[3] as? Int64) ?? 0)
+            let aT = Int((row[4] as? Int64) ?? 0)
+            let tC = Int((row[5] as? Int64) ?? 0)
+            let proj = (row[6] as? String) ?? "(unknown)"
+
+            sessions += 1
+            totalIn += inT; totalOut += outT; totalCache += cacheT
+            userMsgs += uM; assistantMsgs += aT; toolCalls += tC
+            projects.insert(proj)
+            projectTokens[proj, default: 0] += (inT + outT + cacheT)
+        }
+
+        let topProjects = projectTokens.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
+        return AISessionKPI(
+            sessions: sessions,
+            totalInputTokens: totalIn, totalOutputTokens: totalOut, totalCacheReadTokens: totalCache,
+            toolCalls: toolCalls, activeProjects: projects.count,
+            userMessages: userMsgs, assistantMessages: assistantMsgs,
+            topProjects: topProjects
+        )
+    }
+
+    /// 按日聚合的趋势（最近 days 天）
+    func getAIDailyTrends(for date: Date, days: Int) throws -> [AISessionDailyTrend] {
+        let db = try connect()
+        let (startUTC, endUTC) = dayWindowUTC(for: date, daysBack: days - 1)
+
+        // 用本地日期分桶；started_at 是 UTC，要在 SQL 里转本地时区
+        // 简化：在 Swift 端按 started_at 转本地日期分桶
+        var byDate: [String: (input: Int64, output: Int64, cache: Int64, sessions: Int, tools: Int)] = [:]
+        let dayFmt = DateFormatter(); dayFmt.dateFormat = "yyyy-MM-dd"; dayFmt.timeZone = .current
+
+        for row in try db.prepare("""
+            SELECT started_at, input_tokens, output_tokens, cache_read_tokens, tool_calls
+            FROM ai_sessions
+            WHERE started_at >= ? AND started_at < ?
+            """, startUTC, endUTC) {
+            guard let ts = row[0] as? String, let d = parseISO(ts) else { continue }
+            let key = dayFmt.string(from: d)
+            var b = byDate[key] ?? (0, 0, 0, 0, 0)
+            b.input += (row[1] as? Int64) ?? 0
+            b.output += (row[2] as? Int64) ?? 0
+            b.cache += (row[3] as? Int64) ?? 0
+            b.sessions += 1
+            b.tools += Int((row[4] as? Int64) ?? 0)
+            byDate[key] = b
+        }
+
+        // 填充缺失的日期（保持图表连续）
+        let cal = Calendar.current
+        let startDay = cal.startOfDay(for: cal.date(byAdding: .day, value: -(days - 1), to: date)!)
+        var trends: [AISessionDailyTrend] = []
+        for i in 0..<days {
+            let d = cal.date(byAdding: .day, value: i, to: startDay)!
+            let key = dayFmt.string(from: d)
+            let b = byDate[key] ?? (0, 0, 0, 0, 0)
+            trends.append(AISessionDailyTrend(
+                date: key,
+                inputTokensK: Double(b.input) / 1000.0,
+                outputTokensK: Double(b.output) / 1000.0,
+                cacheReadTokensK: Double(b.cache) / 1000.0,
+                sessions: b.sessions, toolCalls: b.tools
+            ))
+        }
+        return trends
+    }
+
+    /// 1 天视图的小时级趋势（本地时间 0~23 时）
+    func getAIHourlyTrends(for date: Date) throws -> [AISessionDailyTrend] {
+        let db = try connect()
+        let (startUTC, endUTC) = dayWindowUTC(for: date)
+
+        var byHour: [Int: (input: Int64, output: Int64, cache: Int64, sessions: Int, tools: Int)] = [:]
+        let hourFmt = DateFormatter(); hourFmt.dateFormat = "H"; hourFmt.timeZone = .current
+
+        for row in try db.prepare("""
+            SELECT started_at, input_tokens, output_tokens, cache_read_tokens, tool_calls
+            FROM ai_sessions
+            WHERE started_at >= ? AND started_at < ?
+            """, startUTC, endUTC) {
+            guard let ts = row[0] as? String, let d = parseISO(ts), let hour = Int(hourFmt.string(from: d)) else { continue }
+            var b = byHour[hour] ?? (0, 0, 0, 0, 0)
+            b.input += (row[1] as? Int64) ?? 0
+            b.output += (row[2] as? Int64) ?? 0
+            b.cache += (row[3] as? Int64) ?? 0
+            b.sessions += 1
+            b.tools += Int((row[4] as? Int64) ?? 0)
+            byHour[hour] = b
+        }
+
+        var trends: [AISessionDailyTrend] = []
+        for h in 0..<24 {
+            let b = byHour[h] ?? (0, 0, 0, 0, 0)
+            trends.append(AISessionDailyTrend(
+                date: String(format: "%02d:00", h),
+                inputTokensK: Double(b.input) / 1000.0,
+                outputTokensK: Double(b.output) / 1000.0,
+                cacheReadTokensK: Double(b.cache) / 1000.0,
+                sessions: b.sessions, toolCalls: b.tools
+            ))
+        }
+        return trends
+    }
+
+    /// Top 项目（按 token 总量排序，取最近 days 天）
+    func getAIProjectUsage(for date: Date, days: Int) throws -> [AIProjectUsage] {
+        let db = try connect()
+        let (startUTC, endUTC) = dayWindowUTC(for: date, daysBack: days - 1)
+        var results: [AIProjectUsage] = []
+        for row in try db.prepare("""
+            SELECT COALESCE(project, '(unknown)') AS proj,
+                   SUM(input_tokens + output_tokens + cache_read_tokens) AS tokens,
+                   COUNT(*) AS sessions
+            FROM ai_sessions
+            WHERE started_at >= ? AND started_at < ?
+            GROUP BY proj
+            ORDER BY tokens DESC
+            """, startUTC, endUTC) {
+            let proj = (row[0] as? String) ?? "(unknown)"
+            let tokens = (row[1] as? Int64) ?? 0
+            let sessions = Int((row[2] as? Int64) ?? 0)
+            results.append(AIProjectUsage(project: proj, tokensK: Double(tokens) / 1000.0, sessions: sessions))
+        }
+        return results
+    }
+
+    /// 按 AI 工具来源（claude/codex/...）汇总 token，用于"AI 工具占比"饼图
+    func getAISourceUsage(for date: Date, days: Int) throws -> [(source: String, totalTokens: Int64, sessions: Int)] {
+        let db = try connect()
+        let (startUTC, endUTC) = dayWindowUTC(for: date, daysBack: days - 1)
+        var results: [(source: String, totalTokens: Int64, sessions: Int)] = []
+        for row in try db.prepare("""
+            SELECT source,
+                   SUM(input_tokens + output_tokens + cache_read_tokens) AS tokens,
+                   COUNT(*) AS sessions
+            FROM ai_sessions
+            WHERE started_at >= ? AND started_at < ?
+            GROUP BY source
+            ORDER BY tokens DESC
+            """, startUTC, endUTC) {
+            let src = (row[0] as? String) ?? ""
+            let tokens = (row[1] as? Int64) ?? 0
+            let sessions = Int((row[2] as? Int64) ?? 0)
+            results.append((sourceLabel(src), tokens, sessions))
+        }
+        return results
+    }
+
+    /// Top 工具（按调用次数）
+    func getAIToolUsage(for date: Date, days: Int) throws -> [AIToolUsage] {
+        let db = try connect()
+        let (startUTC, endUTC) = dayWindowUTC(for: date, daysBack: days - 1)
+        var results: [AIToolUsage] = []
+        for row in try db.prepare("""
+            SELECT t.tool_name, SUM(t.call_count) AS cnt
+            FROM ai_tool_calls t
+            JOIN ai_sessions s ON s.source = t.source AND s.session_id = t.session_id
+            WHERE s.started_at >= ? AND s.started_at < ?
+            GROUP BY t.tool_name
+            ORDER BY cnt DESC
+            """, startUTC, endUTC) {
+            let tool = (row[0] as? String) ?? "?"
+            let cnt = Int((row[1] as? Int64) ?? 0)
+            results.append(AIToolUsage(tool: tool, count: cnt))
+        }
+        return results
+    }
+
+    /// 当日 session 详情列表（按 token 总量降序）
+    func getAISessionDetails(for date: Date) throws -> [AISessionDetail] {
+        let db = try connect()
+        let (startUTC, endUTC) = dayWindowUTC(for: date)
+        var results: [AISessionDetail] = []
+        for row in try db.prepare("""
+            SELECT session_id, source, COALESCE(project, '(unknown)'),
+                   COALESCE(topic, ''), started_at, ended_at,
+                   input_tokens, output_tokens, cache_read_tokens,
+                   assistant_turns, tool_calls, COALESCE(model_primary, '')
+            FROM ai_sessions
+            WHERE started_at >= ? AND started_at < ?
+            ORDER BY (input_tokens + output_tokens + cache_read_tokens) DESC
+            LIMIT 200
+            """, startUTC, endUTC) {
+            let sid = (row[0] as? String) ?? ""
+            let src = (row[1] as? String) ?? ""
+            let proj = (row[2] as? String) ?? "(unknown)"
+            let topic = (row[3] as? String) ?? ""
+            let startedAt = parseISO(row[4] as? String)
+            let endedAt = parseISO(row[5] as? String)
+            let inT = (row[6] as? Int64) ?? 0
+            let outT = (row[7] as? Int64) ?? 0
+            let cacheT = (row[8] as? Int64) ?? 0
+            let turns = Int((row[9] as? Int64) ?? 0)
+            let toolCalls = Int((row[10] as? Int64) ?? 0)
+            let model = (row[11] as? String) ?? ""
+
+            let timeRange: String
+            if let s = startedAt, let e = endedAt {
+                timeRange = "\(Self.timeOnlyFmt.string(from: s))~\(Self.timeOnlyFmt.string(from: e))"
+            } else if let s = startedAt {
+                timeRange = Self.timeOnlyFmt.string(from: s)
+            } else {
+                timeRange = ""
+            }
+
+            results.append(AISessionDetail(
+                sessionId: sid, project: proj, topic: topic, timeRange: timeRange,
+                inputTokens: inT, outputTokens: outT, cacheReadTokens: cacheT,
+                totalTokens: inT + outT + cacheT,
+                turns: turns, toolCalls: toolCalls, model: model,
+                source: sourceLabel(src)
+            ))
+        }
+        return results
+    }
 }

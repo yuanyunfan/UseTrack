@@ -8,19 +8,30 @@ import Foundation
 import SQLite
 
 class HermesSessionStore {
-    // MARK: - Scan Cache
+    // MARK: - Scan Cache (NSLock 保护：4 个 Store 的 scan 在并行队列里跑，
+    // 同时 invalidateCache 可能被新一轮 loadAISessions 调用 → Dictionary 并发读写崩溃)
     private var scanCache: [String: [Row]] = [:]
+    private let cacheLock = NSLock()
 
     private func cachedScan(from start: String, to end: String) -> [Row] {
         let key = "\(start)|\(end)"
-        if let result = scanCache[key] { return result }
+        cacheLock.lock()
+        if let result = scanCache[key] {
+            cacheLock.unlock()
+            return result
+        }
+        cacheLock.unlock()
         let result = scanSessions(from: start, to: end)
+        cacheLock.lock()
         scanCache[key] = result
+        cacheLock.unlock()
         return result
     }
 
     func invalidateCache() {
+        cacheLock.lock()
         scanCache.removeAll()
+        cacheLock.unlock()
     }
     private var dbPaths: [String] {
         var paths = [NSString(string: "~/.hermes/state.db").expandingTildeInPath]

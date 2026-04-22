@@ -214,3 +214,54 @@ FROM activity_stream
 WHERE activity = 'app_switch'
 GROUP BY date(ts), strftime('%H', ts)
 ORDER BY date DESC, hour;
+
+-- ============================================================
+-- AI Sessions: 聚合 Claude Code / OpenCode / Hermes / OpenClaw 的会话数据
+--
+-- 设计:
+-- - 由 Collector 的 AISessionWatcher 定期扫描各数据源，做增量同步
+-- - MenuBar / Python MCP 都从这三张表读，不再各自重新解析 jsonl
+-- - 增量同步核心: ai_session_files.mtime > 上次解析时跳过
+-- ============================================================
+
+-- 一个 AI 会话的聚合记录（按 source + session_id 唯一）
+CREATE TABLE IF NOT EXISTS ai_sessions (
+    session_id          TEXT NOT NULL,
+    source              TEXT NOT NULL,           -- 'claude' | 'opencode' | 'hermes' | 'openclaw'
+    project             TEXT,                    -- 项目名（claude 从目录名解析）
+    started_at          TEXT,                    -- 第一条消息 ISO 时间戳（UTC）
+    ended_at            TEXT,                    -- 最后一条消息 ISO 时间戳（UTC）
+    input_tokens        INTEGER NOT NULL DEFAULT 0,  -- 含 cache_creation_input_tokens
+    output_tokens       INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+    user_messages       INTEGER NOT NULL DEFAULT 0,
+    assistant_turns     INTEGER NOT NULL DEFAULT 0,
+    tool_calls          INTEGER NOT NULL DEFAULT 0,  -- 总数（按工具拆分见 ai_tool_calls）
+    model_primary       TEXT,                    -- 该 session 用得最多的 model
+    topic               TEXT,                    -- 第一条用户消息的前 ~120 字符
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (source, session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_sessions_started ON ai_sessions(started_at);
+CREATE INDEX IF NOT EXISTS idx_ai_sessions_project ON ai_sessions(project);
+CREATE INDEX IF NOT EXISTS idx_ai_sessions_source_started ON ai_sessions(source, started_at);
+
+-- mtime 增量去重表：扫描时跳过 mtime 未变化的文件
+CREATE TABLE IF NOT EXISTS ai_session_files (
+    file_path           TEXT PRIMARY KEY,
+    source              TEXT NOT NULL,
+    mtime               REAL NOT NULL,           -- file modification time (epoch seconds)
+    last_parsed_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    sessions_found      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ai_session_files_source ON ai_session_files(source);
+
+-- 工具调用按 session × tool 维度的聚合
+CREATE TABLE IF NOT EXISTS ai_tool_calls (
+    session_id          TEXT NOT NULL,
+    source              TEXT NOT NULL,
+    tool_name           TEXT NOT NULL,
+    call_count          INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, session_id, tool_name)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_tool_calls_tool ON ai_tool_calls(tool_name);
