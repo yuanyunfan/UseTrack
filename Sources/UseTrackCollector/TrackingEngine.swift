@@ -128,14 +128,18 @@ class TrackingEngine {
 
         // ---- 活跃 ↔ 空闲 ----
         case (.active, .idle):
+            // 用回推后的 idleStartTime 截断 in-flight app_switch，避免把 AFK 时长算到该 app 上。
+            // 若 AFKWatcher 没记录到 idleStart（极少见），退化为当前时刻。
+            appWatcher.truncateCurrent(at: afkWatcher.currentIdleStartTime ?? Date())
             // 空闲时：暂停 WindowWatcher 的高频轮询（省电）
             // AppWatcher 保持运行（用户可能切 App 后放着）
             windowWatcher.stop()
             // InputWatcher 和 MouseTracker 保持运行（检测用户回来）
 
         case (.idle, .active):
-            // 恢复 WindowWatcher
+            // 恢复 WindowWatcher，并为当前前台 app 开启全新 segment
             windowWatcher.start()
+            appWatcher.resumeAfterIdle(at: Date())
 
         // ---- 锁屏 ----
         case (.idle, .locked):
@@ -147,6 +151,8 @@ class TrackingEngine {
 
         case (_, .locked):
             // 锁屏时暂停所有昂贵的轮询
+            // 先截断 in-flight app_switch（锁屏当下视为该 app 不再活跃）
+            appWatcher.truncateCurrent(at: Date())
             windowWatcher.stop()
             inputWatcher.stop()
             mouseTracker.stop()
@@ -160,6 +166,7 @@ class TrackingEngine {
             inputWatcher.start()
             mouseTracker.start()
             afkWatcher.start()
+            appWatcher.resumeAfterIdle(at: Date())
 
         // ---- 睡眠 ----
         case (.idle, .asleep):
@@ -170,6 +177,8 @@ class TrackingEngine {
 
         case (_, .asleep):
             // 系统睡眠：全部暂停
+            // 先截断 in-flight app_switch（睡眠当下该 app 不再活跃）
+            appWatcher.truncateCurrent(at: Date())
             windowWatcher.stop()
             inputWatcher.stop()
             mouseTracker.stop()
@@ -183,6 +192,7 @@ class TrackingEngine {
             inputWatcher.start()
             mouseTracker.start()
             afkWatcher.start()
+            appWatcher.resumeAfterIdle(at: Date())
 
         // ---- 停止 ----
         case (_, .stopped):

@@ -79,7 +79,10 @@ def export_today(
     # Validate machine_id to prevent path traversal
     import re
     if not re.fullmatch(r'[A-Za-z0-9_\-]+', machine_id):
-        raise ValueError(f"Invalid machine_id: {machine_id!r}. Only alphanumeric characters, hyphens, and underscores are allowed.")
+        raise ValueError(
+            f"Invalid machine_id: {machine_id!r}. "
+            "Only alphanumeric characters, hyphens, and underscores are allowed."
+        )
 
     d = target_date or date.today()
     start_ts = f"{d.isoformat()}T00:00:00"
@@ -477,9 +480,15 @@ class MergedDB(UseTrackDB):
     async def get_output_metrics(self, period: str = "today") -> dict:
         """Get merged output metrics."""
         local = await super().get_output_metrics(period)
-        start_date, end_date = self._dates_from_period(period)
+        # _dates_from_period returns inclusive end (yesterday for "today"), used by
+        # _find_remote_dbs which does an inclusive range scan. The SQL below however
+        # uses half-open `>= start AND < end`, so re-derive params from _parse_period
+        # (which returns half-open ISO timestamps) — otherwise "today" matches nothing.
+        find_start, find_end = self._dates_from_period(period)
+        ts_start, ts_end = self._parse_period(period)
+        sql_start_date, sql_end_date = ts_start[:10], ts_end[:10]
 
-        remote_dbs = self._find_remote_dbs(start_date, end_date)
+        remote_dbs = self._find_remote_dbs(find_start, find_end)
         if not remote_dbs:
             return local
 
@@ -488,7 +497,7 @@ class MergedDB(UseTrackDB):
                 db_path,
                 """SELECT metric_type, SUM(value) as total FROM output_metrics
                 WHERE date >= ? AND date < ? GROUP BY metric_type""",
-                (start_date, end_date),
+                (sql_start_date, sql_end_date),
             )
             for r in rows:
                 mt = r["metric_type"]

@@ -93,6 +93,54 @@ class AppWatcher {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
+    /// 关闭当前 in-flight app_switch segment。
+    /// 由 TrackingEngine 在用户进入 idle / locked / asleep 时调用，
+    /// 用 `time` 作为该 app 真正"停止活跃"的截断点（idle 时为 idleStartTime；锁屏/睡眠时为当前时刻）。
+    /// 调用后 lastActivityRowId/lastSwitchTime 被清空，避免下次 app_switch 误回填整段 idle 时长。
+    func truncateCurrent(at time: Date) {
+        if let lastTime = lastSwitchTime, let rowId = lastActivityRowId {
+            let duration = max(0, time.timeIntervalSince(lastTime))
+            try? dbManager.updateActivityDuration(rowId: rowId, durationSeconds: duration)
+        }
+        lastActivityRowId = nil
+        lastSwitchTime = nil
+    }
+
+    /// 用户从 idle/locked/asleep 回到 active 时调用：为当前前台 app 开启一段全新的 segment，
+    /// 即使 app 名字与离开时一致也会写一条新的 app_switch（duration=nil，等下次切换回填）。
+    func resumeAfterIdle(at time: Date) {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return }
+        let appName = frontApp.localizedName ?? "Unknown"
+        let bundleId = frontApp.bundleIdentifier ?? ""
+
+        guard !Self.ignoredApps.contains(appName) else { return }
+
+        let isSensitive = dbManager.isSensitiveApp(appName: appName)
+        let recordedName = isSensitive ? "[Redacted]" : appName
+        let category = isSensitive ? "sensitive" : dbManager.getCategoryForApp(appName: appName)
+
+        lastAppName = appName
+        lastSwitchTime = time
+
+        let event = ActivityEvent(
+            id: nil,
+            timestamp: time,
+            activity: "app_switch",
+            appName: recordedName,
+            windowTitle: nil,
+            durationSeconds: nil,
+            meta: ["bundle_id": bundleId, "source": "resume"],
+            category: category
+        )
+
+        do {
+            lastActivityRowId = try dbManager.insertActivity(event)
+        } catch {
+            print("[AppWatcher] Error inserting resume activity: \(error)")
+            lastActivityRowId = nil
+        }
+    }
+
     @objc private func appDidActivate(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
             as? NSRunningApplication else { return }

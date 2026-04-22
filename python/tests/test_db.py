@@ -373,10 +373,10 @@ class TestGetDistractionPatterns:
 class TestHelpers:
     async def test_fetchone_without_connect(self):
         udb = UseTrackDB()
-        with pytest.raises(AssertionError, match="not connected"):
+        with pytest.raises(RuntimeError, match="not connected"):
             await udb._fetchone("SELECT 1")
 
     async def test_fetchall_without_connect(self):
         udb = UseTrackDB()
-        with pytest.raises(AssertionError, match="not connected"):
+        with pytest.raises(RuntimeError, match="not connected"):
             await udb._fetchall("SELECT 1")

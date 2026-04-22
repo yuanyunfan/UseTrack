@@ -2,6 +2,7 @@
 // 核心逻辑单元测试
 
 import XCTest
+import SQLite
 @testable import UseTrackCollector
 
 // MARK: - TrackingState Tests
@@ -189,5 +190,36 @@ final class AppWatcherTests: XCTestCase {
         XCTAssertNotNil(watcher)
         // Cleanup
         try? FileManager.default.removeItem(atPath: dbPath)
+    }
+
+    func testTruncateCurrentBackfillsDurationAndClearsState() throws {
+        let dbPath = NSTemporaryDirectory() + "usetrack_truncate_\(UUID().uuidString).db"
+        let db = try DatabaseManager(dbPath: dbPath)
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+
+        let watcher = AppWatcher(dbManager: db)
+        // 用 start() 启动后会立刻为当前前台 app 写一条 row（duration=nil）。
+        // 测试环境下 frontmostApplication 可能是 xctest，这条 row 也算有效。
+        watcher.start()
+        defer { watcher.stop() }
+
+        // 给 1 秒后再 truncate，模拟用户停留 1s 然后 AFK
+        let truncateAt = Date().addingTimeInterval(1.0)
+        watcher.truncateCurrent(at: truncateAt)
+
+        // 第二次 truncate 应是 no-op（lastActivityRowId 已被清空），不会崩溃也不会再插行
+        watcher.truncateCurrent(at: Date().addingTimeInterval(2.0))
+
+        // 验证 DB 中最新的 app_switch 行 duration_s 在合理范围（约 1s 上下）
+        let conn = try Connection(dbPath, readonly: true)
+        var durations: [Double] = []
+        for row in try conn.prepare("SELECT duration_s FROM activity_stream WHERE activity = 'app_switch' AND duration_s IS NOT NULL") {
+            if let d = row[0] as? Double { durations.append(d) }
+        }
+        XCTAssertEqual(durations.count, 1, "应恰好有一条 app_switch 被回填了 duration")
+        if let d = durations.first {
+            XCTAssertGreaterThanOrEqual(d, 0)
+            XCTAssertLessThan(d, 5, "duration 应接近 1 秒，不应被异常放大")
+        }
     }
 }

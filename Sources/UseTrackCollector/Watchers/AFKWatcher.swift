@@ -22,6 +22,10 @@ class AFKWatcher {
     /// 回调：通知 TrackingEngine 空闲状态变化
     var onIdleStateChanged: ((Bool) -> Void)?
 
+    /// 当前 idle 段的起始时间（已回推到用户实际停止操作的时刻）。
+    /// TrackingEngine 用它来截断 in-flight 的 app_switch duration（避免把 AFK 时间算到 app 上）。
+    var currentIdleStartTime: Date? { idleStartTime }
+
     /// Initialize AFK watcher.
     /// - Parameters:
     ///   - dbManager: Database manager for writing events
