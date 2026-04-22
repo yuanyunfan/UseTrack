@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/yuan/bin/UseTrackMenuBar</string>
+        <string>__BINARY_DST__</string>
     </array>
 
     <!-- Start at login -->

@@ -7,8 +7,8 @@
     <string>com.usetrack.collector</string>
 
     <!-- Path to the collector binary -->
-    <!-- After `swift build`, binary is at .build/debug/UseTrackCollector -->
-    <!-- For production, copy to /usr/local/bin/UseTrackCollector -->
+    <!-- install.sh substitutes __BINARY_DST__ → $HOME/bin/UseTrackCollector and -->
+    <!-- __HOME__ → user home dir. User-local install: no sudo, no /usr/local/bin -->
     <key>ProgramArguments</key>
     <array>
         <string>__BINARY_DST__</string>
