@@ -265,3 +265,25 @@ CREATE TABLE IF NOT EXISTS ai_tool_calls (
     PRIMARY KEY (source, session_id, tool_name)
 );
 CREATE INDEX IF NOT EXISTS idx_ai_tool_calls_tool ON ai_tool_calls(tool_name);
+
+-- Per-message token events: 用于按消息 timestamp 准确按日/小时聚合 token，避免跨日 session 双计。
+-- 每条 assistant turn / token_count event 一行；hermes 因仅有 session 级数据每 session 一行（ts=started_at）。
+-- 设计要点:
+-- - PRIMARY KEY (source, message_id) 让 INSERT OR IGNORE 保证幂等，重新扫描相同文件不会重复累加
+-- - ts_utc 是消息时间戳（ISO 8601 UTC），按日/小时聚合时直接 WHERE ts_utc >= ? AND < ?
+-- - input/cache_read/output 三个 token 字段按 source 各自的归一化口径填入（与 analyze.py 完全对齐）
+CREATE TABLE IF NOT EXISTS ai_token_events (
+    source               TEXT NOT NULL,
+    message_id           TEXT NOT NULL,           -- claude:uuid / openclaw:sid:id / opencode:row_id / codex:sid:seq / hermes:sid
+    session_id           TEXT NOT NULL,
+    project              TEXT,
+    ts_utc               TEXT NOT NULL,           -- ISO 8601 UTC
+    model                TEXT,
+    input_tokens         INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_token_events_ts ON ai_token_events(ts_utc);
+CREATE INDEX IF NOT EXISTS idx_ai_token_events_session ON ai_token_events(source, session_id);
+CREATE INDEX IF NOT EXISTS idx_ai_token_events_source_ts ON ai_token_events(source, ts_utc);

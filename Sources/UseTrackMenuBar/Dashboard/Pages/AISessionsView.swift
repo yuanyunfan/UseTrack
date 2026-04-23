@@ -198,12 +198,8 @@ struct AISessionsView: View {
             return String(format: "%.1fB", Double(tokens) / 1_000_000_000)
         } else if tokens >= 1_000_000 {
             return String(format: "%.1fM", Double(tokens) / 1_000_000)
-        } else if tokens >= 1000 {
-            let k = Double(tokens) / 1000
-            if k >= 100 {
-                return String(format: "%.0fK", k)
-            }
-            return String(format: "%.1fK", k)
+        } else if tokens >= 1_000 {
+            return String(format: "%.1fK", Double(tokens) / 1_000)
         }
         return "\(tokens)"
     }

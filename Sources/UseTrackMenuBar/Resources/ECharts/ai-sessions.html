@@ -55,10 +55,10 @@ body {
     var fallbackColors = ['#FF3B30','#FFD60A','#8E8E93','#30D158','#64D2FF'];
 
     function fmtTokens(n) {
-        if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
-        if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+        if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
         if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-        return String(n);
+        return String(Math.round(n));
     }
 
     function tooltip() {
@@ -80,7 +80,8 @@ body {
         return d.indexOf(':') >= 0 ? d : d.substring(5);
     }
 
-    function fmtK(n) { return Math.round(n).toLocaleString() + 'K'; }
+    // 入参单位是 K（trend series 已经 /1000 过）；按总量自适应升级到 M/B
+    function fmtK(n) { return fmtTokens(Math.round(n) * 1000); }
 
     function renderTokenTrend(trends) {
         var dates = trends.map(function(d) { return fmtAxis(d.date); });
@@ -97,7 +98,7 @@ body {
             legend: { data: ['Input', 'Output', 'Cache Read'], top: 5, right: 10, textStyle: { color: T.sub, fontSize: 10 } },
             grid: { left: 60, right: 15, top: 35, bottom: 25 },
             xAxis: { type: 'category', data: dates, axisLabel: { color: T.sub, fontSize: 10 }, axisLine: { lineStyle: { color: T.line } } },
-            yAxis: { type: 'value', name: 'K', nameTextStyle: { color: T.sub, fontSize: 9 }, axisLabel: { color: T.sub, fontSize: 9, formatter: function(v) { return v.toLocaleString(); } }, splitLine: { lineStyle: { color: T.line, type: 'dashed' } } },
+            yAxis: { type: 'value', name: 'tokens', nameTextStyle: { color: T.sub, fontSize: 9 }, axisLabel: { color: T.sub, fontSize: 9, formatter: function(v) { return fmtTokens(v * 1000); } }, splitLine: { lineStyle: { color: T.line, type: 'dashed' } } },
             series: [
                 { name: 'Input', type: 'line', data: trends.map(function(d) { return Math.round(d.inputK); }), smooth: true, lineStyle: { width: 2 },
                   areaStyle: { color: { type: 'linear', x:0,y:0,x2:0,y2:1, colorStops: [{offset:0,color:'rgba(0,122,255,0.25)'},{offset:1,color:'rgba(0,122,255,0.02)'}] } },
@@ -137,11 +138,11 @@ body {
         var values = top.map(function(d) { return Math.round(d.tokensK); }).reverse();
         projectChart.setOption({
             tooltip: Object.assign({ trigger: 'axis', axisPointer: { type: 'shadow' } }, tooltip(), {
-                formatter: function(p) { return '<b>' + p[0].name + '</b><br/>' + p[0].value + 'K tokens'; }
+                formatter: function(p) { return '<b>' + p[0].name + '</b><br/>' + fmtTokens(p[0].value * 1000) + ' tokens'; }
             }),
             grid: { left: 110, right: 30, top: 15, bottom: 25 },
-            xAxis: { type: 'value', name: 'K tokens', nameTextStyle: { color: T.sub, fontSize: 9 },
-                axisLabel: { color: T.sub, fontSize: 9 }, splitLine: { lineStyle: { color: T.line, type: 'dashed' } } },
+            xAxis: { type: 'value', name: 'tokens', nameTextStyle: { color: T.sub, fontSize: 9 },
+                axisLabel: { color: T.sub, fontSize: 9, formatter: function(v) { return fmtTokens(v * 1000); } }, splitLine: { lineStyle: { color: T.line, type: 'dashed' } } },
             yAxis: { type: 'category', data: names,
                 axisLabel: { color: T.text, fontSize: 11, width: 100, overflow: 'truncate' },
                 axisLine: { lineStyle: { color: T.line } } },

@@ -110,22 +110,23 @@ class AISessionWatcher {
                 }
 
                 let sessions = parseClaudeFile(filePath, projectName: projectName)
-                for rec in sessions {
+                for rec in sessions.records {
                     try? dbManager.upsertAISession(rec)
                 }
+                try? dbManager.insertAITokenEvents(sessions.events)
                 try? dbManager.markAISessionFileScanned(
                     filePath: filePath, source: "claude",
-                    mtime: mtime, sessionsFound: sessions.count
+                    mtime: mtime, sessionsFound: sessions.records.count
                 )
-                if !sessions.isEmpty { newOrChanged += sessions.count }
+                if !sessions.records.isEmpty { newOrChanged += sessions.records.count }
             }
         }
         return newOrChanged
     }
 
-    private func parseClaudeFile(_ filePath: String, projectName: String) -> [DatabaseManager.AISessionRecord] {
+    private func parseClaudeFile(_ filePath: String, projectName: String) -> (records: [DatabaseManager.AISessionRecord], events: [DatabaseManager.AITokenEvent]) {
         guard let data = FileManager.default.contents(atPath: filePath),
-              let content = String(data: data, encoding: .utf8) else { return [] }
+              let content = String(data: data, encoding: .utf8) else { return ([], []) }
 
         // 单文件可能含多个 sessionId（比如 subagents 共用），按 sid 聚合
         struct Acc {
@@ -138,6 +139,7 @@ class AISessionWatcher {
             var tools: [String: Int] = [:]
         }
         var byId: [String: Acc] = [:]
+        var events: [DatabaseManager.AITokenEvent] = []
 
         content.enumerateLines { line, _ in
             guard !line.isEmpty,
@@ -168,6 +170,15 @@ class AISessionWatcher {
                     let cacheR = Self.num(usage["cache_read_input_tokens"])
                     if inT > 0 || outT > 0 || cacheR > 0 {
                         acc.input += inT; acc.output += outT; acc.cache += cacheR; acc.turns += 1
+                        // Per-message event for accurate per-day bucketing
+                        if let ts = ts, let uuid = json["uuid"] as? String, !uuid.isEmpty {
+                            let modelStr = (msg["model"] as? String) ?? (json["model"] as? String)
+                            events.append(.init(
+                                source: "claude", messageId: uuid, sessionId: sid,
+                                project: projectName, tsUTC: ts, model: modelStr,
+                                inputTokens: inT, cacheReadTokens: cacheR, outputTokens: outT
+                            ))
+                        }
                     }
                 }
                 if let m = (msg["model"] as? String) ?? (json["model"] as? String), !m.isEmpty {
@@ -195,7 +206,7 @@ class AISessionWatcher {
                 modelPrimary: a.model, topic: a.topic, toolBreakdown: a.tools
             ))
         }
-        return results
+        return (results, events)
     }
 
     // MARK: - OpenCode (~/.local/share/opencode/opencode.db)
@@ -229,19 +240,29 @@ class AISessionWatcher {
             var lastMs: Double = 0
         }
         var byId: [String: Acc] = [:]
+        var events: [DatabaseManager.AITokenEvent] = []
+        var sessionDir: [String: String] = [:]
 
-        guard let rows = try? conn.prepare("SELECT session_id, data FROM message") else { return 0 }
+        guard let rows = try? conn.prepare("SELECT id, session_id, time_created, data FROM message") else { return 0 }
         for row in rows {
-            guard let sid = row[0] as? String,
-                  let dataStr = row[1] as? String,
+            guard let messageRowId = row[0] as? String,
+                  let sid = row[1] as? String,
+                  let dataStr = row[3] as? String,
                   let data = dataStr.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+
+            let timeCreatedMs = (row[2] as? Int64).map(Double.init)
+                ?? (row[2] as? Double)
+                ?? 0
 
             var acc = byId[sid] ?? Acc()
             let role = json["role"] as? String ?? ""
             if let timeDict = json["time"] as? [String: Any], let created = timeDict["created"] as? Double {
                 acc.firstMs = min(acc.firstMs, created)
                 acc.lastMs = max(acc.lastMs, created)
+            } else if timeCreatedMs > 0 {
+                acc.firstMs = min(acc.firstMs, timeCreatedMs)
+                acc.lastMs = max(acc.lastMs, timeCreatedMs)
             }
 
             if role == "user" {
@@ -253,17 +274,36 @@ class AISessionWatcher {
                     let cacheWrite = (cacheObj["write"] as? NSNumber)?.int64Value ?? 0
                     let cacheRead = (cacheObj["read"] as? NSNumber)?.int64Value ?? 0
                     let output = (tokens["output"] as? NSNumber)?.int64Value ?? 0
-                    // 对齐 pew normalizeOpenCodeTokens: input = tokens.input + tokens.cache.write
                     let input = inputBase + cacheWrite
                     if input > 0 || output > 0 || cacheRead > 0 {
                         acc.input += input; acc.output += output; acc.cache += cacheRead; acc.turns += 1
+                        let model = (json["modelID"] as? String) ?? (json["model"] as? String)
+                        let tsMs = (json["time"] as? [String: Any])?["created"] as? Double ?? timeCreatedMs
+                        if tsMs > 0 {
+                            events.append(.init(
+                                source: "opencode", messageId: messageRowId, sessionId: sid,
+                                project: nil,  // 在落库前用 sessionDir 回填
+                                tsUTC: msToISO(tsMs), model: model,
+                                inputTokens: input, cacheReadTokens: cacheRead, outputTokens: output
+                            ))
+                        }
                     }
                 }
                 if let m = json["modelID"] as? String, !m.isEmpty { acc.model = m }
                 if json["finish"] as? String == "tool-calls" { acc.toolCalls += 1 }
             }
             byId[sid] = acc
+            if sessionDir[sid] == nil, let meta = sessionMeta[sid] { sessionDir[sid] = meta.dir }
         }
+
+        // 回填 events 的 project 字段
+        let eventsWithProject = events.map { e -> DatabaseManager.AITokenEvent in
+            let proj = projectFromDirectory(sessionDir[e.sessionId] ?? "")
+            return .init(source: e.source, messageId: e.messageId, sessionId: e.sessionId,
+                         project: proj, tsUTC: e.tsUTC, model: e.model,
+                         inputTokens: e.inputTokens, cacheReadTokens: e.cacheReadTokens, outputTokens: e.outputTokens)
+        }
+        try? dbManager.insertAITokenEvents(eventsWithProject)
 
         var count = 0
         for (sid, a) in byId where (a.input + a.output + a.cache) > 0 || a.userMsgs > 0 {
@@ -313,6 +353,7 @@ class AISessionWatcher {
                 """) else { continue }
 
             var count = 0
+            var hermesEvents: [DatabaseManager.AITokenEvent] = []
             for row in rows {
                 let input = (row[7] as? Int64) ?? 0
                 let output = (row[8] as? Int64) ?? 0
@@ -339,6 +380,25 @@ class AISessionWatcher {
                     modelPrimary: model, topic: title, toolBreakdown: [:]
                 ))
                 count += 1
+
+                // Hermes 仅有 session 级数据，无 per-message timestamp。
+                // 用 started_at 作为 bucket 时间，与 analyze.py 的 `WHERE started_at >= ? AND < ?` 对齐。
+                if started > 0 {
+                    hermesEvents.append(.init(
+                        source: "hermes", messageId: id, sessionId: id,
+                        project: triggerSource ?? "(unknown)",
+                        tsUTC: epochToISO(started), model: model,
+                        inputTokens: input, cacheReadTokens: cache, outputTokens: output
+                    ))
+                }
+            }
+            // Hermes events 用 INSERT OR IGNORE，重新扫描时 (source, message_id=session_id) 已存在会被跳过；
+            // 但 hermes session 的 token 会随 session 进行更新（cache write 等）。
+            // 为正确反映最新值，先删后插。
+            if !hermesEvents.isEmpty {
+                let sids = hermesEvents.map { $0.sessionId }
+                try? dbManager.deleteAITokenEvents(source: "hermes", sessionIds: sids)
+                try? dbManager.insertAITokenEvents(hermesEvents)
             }
             try? dbManager.markAISessionFileScanned(filePath: dbPath, source: "hermes", mtime: mtime, sessionsFound: count)
             total += count
@@ -363,8 +423,9 @@ class AISessionWatcher {
                 if let prev = dbManager.getAISessionFileMTime(filePath: filePath), prev >= mtime { continue }
 
                 let sid = String(file.dropLast(6))
-                if let rec = parseOpenClawFile(filePath, sessionId: sid, agent: agent) {
-                    try? dbManager.upsertAISession(rec)
+                if let parsed = parseOpenClawFile(filePath, sessionId: sid, agent: agent) {
+                    try? dbManager.upsertAISession(parsed.record)
+                    try? dbManager.insertAITokenEvents(parsed.events)
                     newOrChanged += 1
                     try? dbManager.markAISessionFileScanned(filePath: filePath, source: "openclaw", mtime: mtime, sessionsFound: 1)
                 } else {
@@ -375,7 +436,7 @@ class AISessionWatcher {
         return newOrChanged
     }
 
-    private func parseOpenClawFile(_ filePath: String, sessionId: String, agent: String) -> DatabaseManager.AISessionRecord? {
+    private func parseOpenClawFile(_ filePath: String, sessionId: String, agent: String) -> (record: DatabaseManager.AISessionRecord, events: [DatabaseManager.AITokenEvent])? {
         guard let data = FileManager.default.contents(atPath: filePath),
               let content = String(data: data, encoding: .utf8) else { return nil }
 
@@ -385,6 +446,8 @@ class AISessionWatcher {
         var model: String? = nil
         var firstTs: String? = nil, lastTs: String? = nil
         var tools: [String: Int] = [:]
+        var events: [DatabaseManager.AITokenEvent] = []
+        var seq = 0
 
         content.enumerateLines { line, _ in
             guard !line.isEmpty,
@@ -392,7 +455,8 @@ class AISessionWatcher {
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   json["type"] as? String == "message" else { return }
 
-            if let ts = json["timestamp"] as? String {
+            let lineTs = json["timestamp"] as? String
+            if let ts = lineTs {
                 if firstTs == nil || ts < firstTs! { firstTs = ts }
                 if lastTs == nil || ts > lastTs! { lastTs = ts }
             }
@@ -418,6 +482,19 @@ class AISessionWatcher {
                     let inT = uInput + uCacheRead + uCacheWrite
                     if inT > 0 || outT > 0 || uCacheRead > 0 {
                         input += inT; output += outT; cache += uCacheRead; turns += 1
+                        // Per-message event
+                        if let ts = lineTs {
+                            // openclaw 的 line `id` 字段只有 8 位 hex，可能在不同 session 间冲突 → 用 sid 前缀
+                            let lineId = (json["id"] as? String) ?? "seq\(seq)"
+                            seq += 1
+                            let mid = "\(sessionId):\(lineId)"
+                            let lineModel = (msg["model"] as? String) ?? model
+                            events.append(.init(
+                                source: "openclaw", messageId: mid, sessionId: sessionId,
+                                project: agent, tsUTC: ts, model: lineModel,
+                                inputTokens: inT, cacheReadTokens: uCacheRead, outputTokens: outT
+                            ))
+                        }
                     }
                 }
                 if let m = msg["model"] as? String, !m.isEmpty { model = m }
@@ -432,13 +509,14 @@ class AISessionWatcher {
         }
 
         guard (input + output + cache) > 0 || userMsgs > 0 else { return nil }
-        return DatabaseManager.AISessionRecord(
+        let record = DatabaseManager.AISessionRecord(
             sessionId: sessionId, source: "openclaw", project: agent,
             startedAt: firstTs, endedAt: lastTs,
             inputTokens: input, outputTokens: output, cacheReadTokens: cache,
             userMessages: userMsgs, assistantTurns: turns, toolCalls: toolCalls,
             modelPrimary: model, topic: topic, toolBreakdown: tools
         )
+        return (record, events)
     }
 
     // MARK: - Codex (~/.codex/sessions/**/rollout-*.jsonl + Multica workspaces)
@@ -490,8 +568,9 @@ class AISessionWatcher {
                 let mtime = fileMTime(filePath) ?? 0
                 if let prev = dbManager.getAISessionFileMTime(filePath: filePath), prev >= mtime { continue }
 
-                if let rec = parseCodexFile(filePath) {
-                    try? dbManager.upsertAISession(rec)
+                if let parsed = parseCodexFile(filePath) {
+                    try? dbManager.upsertAISession(parsed.record)
+                    try? dbManager.insertAITokenEvents(parsed.events)
                     newOrChanged += 1
                     try? dbManager.markAISessionFileScanned(filePath: filePath, source: "codex", mtime: mtime, sessionsFound: 1)
                 } else {
@@ -502,7 +581,7 @@ class AISessionWatcher {
         return newOrChanged
     }
 
-    private func parseCodexFile(_ filePath: String) -> DatabaseManager.AISessionRecord? {
+    private func parseCodexFile(_ filePath: String) -> (record: DatabaseManager.AISessionRecord, events: [DatabaseManager.AITokenEvent])? {
         guard let data = FileManager.default.contents(atPath: filePath),
               let content = String(data: data, encoding: .utf8) else { return nil }
 
@@ -514,6 +593,9 @@ class AISessionWatcher {
         var deltaCount = 0
         var userMsgs = 0, assistantMsgs = 0
         var firstTs: String? = nil, lastTs: String? = nil
+        // 临时收集 deltas，最终落库时再绑定 sessionId（session_meta 出现得早）
+        struct CodexDelta { let ts: String; let input: Int64; let cached: Int64; let output: Int64; let model: String? }
+        var pendingDeltas: [CodexDelta] = []
 
         content.enumerateLines { line, _ in
             guard !line.isEmpty,
@@ -572,6 +654,11 @@ class AISessionWatcher {
                 totalCached += delta.cached
                 totalOutput += delta.output
                 deltaCount += 1
+                if let ts = obj["timestamp"] as? String {
+                    pendingDeltas.append(CodexDelta(
+                        ts: ts, input: delta.input, cached: delta.cached, output: delta.output, model: lastModel
+                    ))
+                }
 
             default:
                 break
@@ -583,13 +670,24 @@ class AISessionWatcher {
         let project = projectCwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "(unknown)"
         let sid = sessionId ?? URL(fileURLWithPath: filePath).lastPathComponent
 
-        return DatabaseManager.AISessionRecord(
+        // Build per-event records, key = sid:seq for stable PK
+        var events: [DatabaseManager.AITokenEvent] = []
+        for (i, d) in pendingDeltas.enumerated() {
+            events.append(.init(
+                source: "codex", messageId: "\(sid):\(i)", sessionId: sid,
+                project: project, tsUTC: d.ts, model: d.model,
+                inputTokens: d.input, cacheReadTokens: d.cached, outputTokens: d.output
+            ))
+        }
+
+        let record = DatabaseManager.AISessionRecord(
             sessionId: sid, source: "codex", project: project,
             startedAt: firstTs, endedAt: lastTs,
             inputTokens: totalInput, outputTokens: totalOutput, cacheReadTokens: totalCached,
             userMessages: userMsgs, assistantTurns: assistantMsgs, toolCalls: 0,
             modelPrimary: lastModel, topic: nil, toolBreakdown: [:]
         )
+        return (record, events)
     }
 
     // MARK: - Helpers

@@ -339,6 +339,25 @@ class DatabaseManager {
             )
         """)
         try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_tool_calls_tool ON ai_tool_calls(tool_name)")
+
+        // ---- AI Token Events: 按消息 timestamp 准确按日/小时聚合 token ----
+        try db.execute("""
+            CREATE TABLE IF NOT EXISTS ai_token_events (
+                source               TEXT NOT NULL,
+                message_id           TEXT NOT NULL,
+                session_id           TEXT NOT NULL,
+                project              TEXT,
+                ts_utc               TEXT NOT NULL,
+                model                TEXT,
+                input_tokens         INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens    INTEGER NOT NULL DEFAULT 0,
+                output_tokens        INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (source, message_id)
+            )
+        """)
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_token_events_ts ON ai_token_events(ts_utc)")
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_token_events_session ON ai_token_events(source, session_id)")
+        try db.execute("CREATE INDEX IF NOT EXISTS idx_ai_token_events_source_ts ON ai_token_events(source, ts_utc)")
     }
 
     // MARK: - Cache Loading
@@ -661,6 +680,55 @@ class DatabaseManager {
             try db.run("DELETE FROM ai_tool_calls WHERE source = ?", source)
             try db.run("DELETE FROM ai_sessions WHERE source = ?", source)
             try db.run("DELETE FROM ai_session_files WHERE source = ?", source)
+            try db.run("DELETE FROM ai_token_events WHERE source = ?", source)
+        }
+    }
+
+    /// 单条 token 事件（一个 assistant turn / token_count 事件 / hermes session）
+    struct AITokenEvent {
+        let source: String
+        let messageId: String      // 与 source 组成唯一键，重复 INSERT 被忽略
+        let sessionId: String
+        let project: String?
+        let tsUTC: String          // ISO 8601 UTC
+        let model: String?
+        let inputTokens: Int64
+        let cacheReadTokens: Int64
+        let outputTokens: Int64
+    }
+
+    /// 批量幂等写入：同一个 (source, message_id) 重复扫描时被 INSERT OR IGNORE 跳过
+    func insertAITokenEvents(_ events: [AITokenEvent]) throws {
+        guard !events.isEmpty else { return }
+        try dbQueue.sync {
+            try db.transaction {
+                let stmt = try db.prepare("""
+                    INSERT OR IGNORE INTO ai_token_events
+                    (source, message_id, session_id, project, ts_utc, model,
+                     input_tokens, cache_read_tokens, output_tokens)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """)
+                for e in events {
+                    try stmt.run(
+                        e.source, e.messageId, e.sessionId, e.project,
+                        e.tsUTC, e.model,
+                        e.inputTokens, e.cacheReadTokens, e.outputTokens
+                    )
+                }
+            }
+        }
+    }
+
+    /// 删除指定 (source, session_id) 的所有 token events。用于 hermes 这种"覆盖式更新"场景。
+    func deleteAITokenEvents(source: String, sessionIds: [String]) throws {
+        guard !sessionIds.isEmpty else { return }
+        try dbQueue.sync {
+            try db.transaction {
+                let stmt = try db.prepare("DELETE FROM ai_token_events WHERE source = ? AND session_id = ?")
+                for sid in sessionIds {
+                    try stmt.run(source, sid)
+                }
+            }
         }
     }
 }
