@@ -18,6 +18,8 @@ class AppWatcher {
     private let dbManager: DatabaseManager
     private var lastSwitchTime: Date?
     private var lastAppName: String?
+    /// The real (pre-redaction) app name used for deduplication of consecutive switches.
+    private var lastRealAppName: String?
     /// Row ID of the last app_switch event inserted, used for precise duration backfill.
     private var lastActivityRowId: Int64?
 
@@ -60,6 +62,7 @@ class AppWatcher {
                 return
             }
 
+            lastRealAppName = appName
             lastAppName = appName
             lastSwitchTime = Date()
 
@@ -150,7 +153,8 @@ class AppWatcher {
         let bundleId = app.bundleIdentifier ?? ""
 
         // Skip if same app (sometimes fires duplicate notifications)
-        guard appName != lastAppName else { return }
+        // Compare against the real (pre-redaction) name so sensitive apps are properly deduplicated
+        guard appName != lastRealAppName else { return }
 
         // Skip system processes that aren't real user activity
         if Self.ignoredApps.contains(appName) {
@@ -159,8 +163,8 @@ class AppWatcher {
             return
         }
 
-        // Update lastAppName with the real name for accurate deduplication
-        lastAppName = appName
+        // Store real app name for dedup; lastAppName may be "[Redacted]" for sensitive apps
+        lastRealAppName = appName
 
         // Check sensitive app blacklist
         if dbManager.isSensitiveApp(appName: appName) {
@@ -201,6 +205,7 @@ class AppWatcher {
         }
 
         // 5. Update state
+        lastAppName = appName
         lastSwitchTime = time
     }
 }
